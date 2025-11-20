@@ -25,6 +25,7 @@ MANIFEST
 
 # Virtual Environment
 venv/
+.venv/
 env/
 ENV/
 env.bak/
@@ -49,6 +50,7 @@ venv.bak/
 htmlcov/
 .tox/
 .hypothesis/
+test_output/
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -67,4 +69,7 @@ logs/
 
 # OS
 Thumbs.db
+
+# Documentation
+docs/
 
