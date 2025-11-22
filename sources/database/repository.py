@@ -446,66 +446,81 @@ class ProductRepository:
         
         session: Session = self.SessionLocal()
         try:
-            # Сохраняем продавца, если есть данные
-            if product.seller_email and seller_data:
-                # Извлекаем поля из seller_data
-                address = seller_data.get('address')
-                company_code = seller_data.get('companyCode')
-                title = seller_data.get('title')
-                seller_id = seller_data.get('id')
-                is_top_seller = seller_data.get('isTopSeller')
-                suspended = seller_data.get('suspended')
-                name = seller_data.get('name')
-                phone = seller_data.get('phone')
-                rating = seller_data.get('rating')
-                short_name = seller_data.get('shortName')
-                vat_code = seller_data.get('vatCode')
-                is_vat_enabled = seller_data.get('isVatEnabled')
-                working_hours = seller_data.get('workingHours')
-                country = seller_data.get('country')
-                current_holidays = seller_data.get('currentHolidays')
-                
+            # Сохраняем продавца, если есть email
+            # Если seller_data пустой или None, создаем продавца только с email
+            if product.seller_email:
                 # Проверяем, существует ли продавец
                 existing_seller = session.query(SellerModel).filter_by(email=product.seller_email).first()
                 
-                if existing_seller:
-                    # Обновляем существующего продавца
-                    existing_seller.address = address
-                    existing_seller.company_code = company_code
-                    existing_seller.title = title
-                    existing_seller.seller_id = seller_id
-                    existing_seller.is_top_seller = is_top_seller
-                    existing_seller.suspended = suspended
-                    existing_seller.name = name
-                    existing_seller.phone = phone
-                    existing_seller.rating = rating
-                    existing_seller.short_name = short_name
-                    existing_seller.vat_code = vat_code
-                    existing_seller.is_vat_enabled = is_vat_enabled
-                    existing_seller.working_hours = working_hours
-                    existing_seller.country = country
-                    existing_seller.current_holidays = current_holidays
+                # Если есть seller_data (не пустой словарь), извлекаем поля
+                if seller_data and len(seller_data) > 0:
+                    # Извлекаем поля из seller_data
+                    address = seller_data.get('address')
+                    company_code = seller_data.get('companyCode')
+                    title = seller_data.get('title')
+                    seller_id = seller_data.get('id')
+                    is_top_seller = seller_data.get('isTopSeller')
+                    suspended = seller_data.get('suspended')
+                    name = seller_data.get('name')
+                    phone = seller_data.get('phone')
+                    rating = seller_data.get('rating')
+                    short_name = seller_data.get('shortName')
+                    vat_code = seller_data.get('vatCode')
+                    is_vat_enabled = seller_data.get('isVatEnabled')
+                    working_hours = seller_data.get('workingHours')
+                    country = seller_data.get('country')
+                    current_holidays = seller_data.get('currentHolidays')
+                    
+                    if existing_seller:
+                        # Обновляем существующего продавца данными из seller_data
+                        existing_seller.address = address
+                        existing_seller.company_code = company_code
+                        existing_seller.title = title
+                        existing_seller.seller_id = seller_id
+                        existing_seller.is_top_seller = is_top_seller
+                        existing_seller.suspended = suspended
+                        existing_seller.name = name
+                        existing_seller.phone = phone
+                        existing_seller.rating = rating
+                        existing_seller.short_name = short_name
+                        existing_seller.vat_code = vat_code
+                        existing_seller.is_vat_enabled = is_vat_enabled
+                        existing_seller.working_hours = working_hours
+                        existing_seller.country = country
+                        existing_seller.current_holidays = current_holidays
+                        logger.debug(f"Обновлен продавец {product.seller_email} с данными из seller_data")
+                    else:
+                        # Создаем нового продавца с данными из seller_data
+                        db_seller = SellerModel(
+                            email=product.seller_email,
+                            address=address,
+                            company_code=company_code,
+                            title=title,
+                            seller_id=seller_id,
+                            is_top_seller=is_top_seller,
+                            suspended=suspended,
+                            name=name,
+                            phone=phone,
+                            rating=rating,
+                            short_name=short_name,
+                            vat_code=vat_code,
+                            is_vat_enabled=is_vat_enabled,
+                            working_hours=working_hours,
+                            country=country,
+                            current_holidays=current_holidays
+                        )
+                        session.add(db_seller)
+                        logger.debug(f"Создан новый продавец {product.seller_email} с данными из seller_data")
                 else:
-                    # Создаем нового продавца
-                    db_seller = SellerModel(
-                        email=product.seller_email,
-                        address=address,
-                        company_code=company_code,
-                        title=title,
-                        seller_id=seller_id,
-                        is_top_seller=is_top_seller,
-                        suspended=suspended,
-                        name=name,
-                        phone=phone,
-                        rating=rating,
-                        short_name=short_name,
-                        vat_code=vat_code,
-                        is_vat_enabled=is_vat_enabled,
-                        working_hours=working_hours,
-                        country=country,
-                        current_holidays=current_holidays
-                    )
-                    session.add(db_seller)
+                    # seller_data пустой или None, но есть email - создаем/проверяем продавца только с email
+                    if not existing_seller:
+                        # Создаем нового продавца только с email
+                        db_seller = SellerModel(email=product.seller_email)
+                        session.add(db_seller)
+                        logger.debug(f"Создан новый продавец {product.seller_email} только с email (seller_data отсутствует)")
+                    else:
+                        # Продавец уже существует, ничего не делаем (не обновляем, т.к. нет данных)
+                        logger.debug(f"Продавец {product.seller_email} уже существует, seller_data пустой - обновление не требуется")
             
             # Сохраняем товар
             existing_product = session.query(ProductModel).filter_by(part_id=product.part_id).first()
