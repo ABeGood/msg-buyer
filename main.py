@@ -2,10 +2,6 @@
 Точка входа в проект MSG Buyer
 Парсинг товаров с сайта rrr.lt и сохранение в БД
 """
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-# from sources.scrapers.rrr_scraper import RRRScraper
 from sources.scrapers import SeleniumBaseScraper
 from sources.parsers.rrr.steering_rack_parser import RRRSteeringRackParser
 from sources.database.repository import ProductRepository
@@ -69,18 +65,20 @@ def main():
         print("  [OK] Страница открыта")
         logger.info("Страница успешно открыта")
         
-        # 4. Ожидание загрузки JavaScript
-        # print("\n[4] Ожидание загрузки JavaScript...")
-        # time.sleep(7)  # Даем время на загрузку динамического контента
-        # print("  [OK] JavaScript загружен")
-
-        scraper.human_delay()  # Wait like a human reading
+        # 4. Ожидание загрузки динамического контента
+        print("\n[4] Ожидание загрузки динамического контента...")
+        logger.debug("Ожидание загрузки динамического контента (human_delay)")
+        scraper.human_delay()  # Человекоподобная задержка для обхода защиты
+        print("  [OK] Динамический контент загружен")
+        logger.debug("Динамический контент загружен")
         
         # 5. Получение HTML и парсинг списка товаров
         print("\n[5] Парсинг списка товаров...")
         logger.info("Начало парсинга списка товаров")
+        logger.debug("Получение HTML страницы")
         html = scraper.get_page_html()
         parser = RRRSteeringRackParser()
+        logger.debug("Парсинг списка товаров из HTML")
         products = parser.parse_product_list(html)
         print(f"  [OK] Найдено товаров: {len(products)}")
         logger.info(f"Найдено товаров: {len(products)}")
@@ -119,14 +117,20 @@ def main():
                 print(f"      URL: {product.url}")
                 logger.debug(f"Переход на страницу товара: {product.url}")
                 scraper.get_page(product.url)
-                scraper.human_delay()  # Даем время на загрузку
+                logger.debug(f"Ожидание загрузки страницы товара {product.part_id} (human_delay)")
+                scraper.human_delay()  # Человекоподобная задержка для обхода защиты
                 print(f"      [OK] Страница загружена")
+                logger.debug(f"Страница товара {product.part_id} загружена")
                 
                 # 7.2. Извлечение детальной информации
                 print(f"  [2] Извлечение детальной информации...")
+                logger.debug(f"Извлечение детальной информации для товара {product.part_id}")
                 if not scraper.driver:
-                    raise Exception("Driver не инициализирован")
+                    error_msg = "Driver не инициализирован"
+                    logger.error(error_msg)
+                    raise Exception(error_msg)
                 detail_data = parser.parse_product_detail_enhanced(scraper.driver)
+                logger.debug(f"Детальная информация извлечена для товара {product.part_id}")
                 
                 # 7.3. Обновление объекта Product
                 product.item_description = detail_data.get('item_description', {})
