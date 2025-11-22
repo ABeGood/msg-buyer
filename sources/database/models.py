@@ -32,6 +32,7 @@ class ProductModel(Base):
     car_details = Column(JSONB, nullable=True)       # {make, series, model, year, engine_capacity, gearbox_code, mileage, vin_code, ...}
     seller_email = Column(String(255), nullable=True)  # Email продавца (FK к таблице Sellers)
     images = Column(JSONB, nullable=True)            # [url1, url2, ...] - массив строк
+    seller_comment = Column(Text, nullable=True)      # Комментарий продавца о конкретном товаре (может отсутствовать)
     available = Column(Boolean, nullable=True)       # Заглушка для будущей логики доступности товара
     
     # Метаданные
@@ -66,6 +67,7 @@ class ProductModel(Base):
             'car_details': self.car_details or {},
             'seller_email': self.seller_email,
             'images': self.images or [],
+            'seller_comment': self.seller_comment,
             'available': self.available,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
@@ -107,9 +109,6 @@ class SellerModel(Base):
     country = Column(JSONB, nullable=True)  # объект с IsoAlpha2 и name
     current_holidays = Column(JSONB, nullable=True)  # currentHolidays - может быть null или объект
     
-    # Комментарий продавца (извлекается из HTML)
-    seller_comment = Column(Text, nullable=True)  # Комментарий продавца (может отсутствовать)
-    
     # SKU товаров продавца (заглушка под будущую логику)
     sellers_sku = Column(JSONB, nullable=True)  # Массив SKU товаров, доступных у продавца
     
@@ -141,7 +140,6 @@ class SellerModel(Base):
             'workingHours': self.working_hours or [],
             'country': self.country or {},
             'currentHolidays': self.current_holidays,
-            'sellerComment': self.seller_comment,
             'sellersSku': self.sellers_sku or [],
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None

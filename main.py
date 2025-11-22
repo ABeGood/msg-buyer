@@ -2,8 +2,6 @@
 Точка входа в проект MSG Buyer
 Парсинг товаров с сайта rrr.lt и сохранение в БД
 """
-import json
-from pathlib import Path
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -74,7 +72,7 @@ def main():
         logger.debug("Ожидание загрузки динамического контента")
         try:
             # Ждем появления элементов товаров на странице
-            wait = WebDriverWait(scraper.driver, 20)
+            wait = WebDriverWait(scraper.driver, 40)
             wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "span.add-to-wishlist, div.products__items")))
             print("  [OK] Динамический контент загружен")
             logger.debug("Динамический контент загружен")
@@ -105,7 +103,6 @@ def main():
         
         successful = 0
         failed = 0
-        seller_data_collection = []  # Для сбора данных seller для анализа
         
         # 7. Обработка каждого товара
         for i, product in enumerate(products_to_process, 1):
@@ -130,7 +127,7 @@ def main():
                 
                 # Ожидание загрузки динамического контента на странице товара
                 try:
-                    wait = WebDriverWait(scraper.driver, 20)
+                    wait = WebDriverWait(scraper.driver, 40)
                     # Ждем появления основных элементов страницы товара
                     wait.until(EC.presence_of_element_located((By.TAG_NAME, "table")))
                     print(f"      [OK] Страница загружена")
@@ -150,9 +147,10 @@ def main():
                 product.car_details = detail_data.get('car_details', {})
                 product.seller_email = detail_data.get('seller_email')
                 product.images = detail_data.get('images', [])
+                product.seller_comment = detail_data.get('seller_comment')  # Комментарий продавца о конкретном товаре
                 
                 seller_data = detail_data.get('seller_data', {})
-                seller_comment = detail_data.get('seller_comment')
+                seller_comment = product.seller_comment  # Для вывода в консоль
                 
                 print(f"      [OK] Данные извлечены:")
                 print(f"        - Item Description: {len(product.item_description)} полей")
@@ -168,19 +166,10 @@ def main():
                            f"seller_email={product.seller_email or 'не найден'}, "
                            f"images={len(product.images)}")
                 
-                # Сбор данных для анализа
-                if seller_data:
-                    seller_data_collection.append({
-                        'product_part_id': product.part_id,
-                        'product_code': product.code,
-                        'seller_email': product.seller_email,
-                        'seller_data': seller_data
-                    })
-                
                 # 7.4. Сохранение товара и продавца в одной транзакции
                 print(f"  [3] Сохранение товара и продавца в БД...")
                 logger.info(f"Сохранение товара {product.part_id} и продавца в БД")
-                if repository.save_product_with_seller(product, seller_data, seller_comment):
+                if repository.save_product_with_seller(product, seller_data):
                     print(f"      [OK] Товар и продавец сохранены в БД")
                     logger.info(f"Товар {product.part_id} успешно сохранен в БД")
                     successful += 1
@@ -197,22 +186,7 @@ def main():
                 failed += 1
                 continue
         
-        # 8. Сохранение данных seller для анализа
-        if seller_data_collection:
-            print("\n[8] Сохранение данных seller для анализа...")
-            logger.info(f"Сохранение данных seller для анализа: {len(seller_data_collection)} записей")
-            docs_dir = Path("docs")
-            docs_dir.mkdir(exist_ok=True)
-            
-            output_file = docs_dir / "seller_data_analysis.json"
-            with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump(seller_data_collection, f, indent=2, ensure_ascii=False)
-            
-            print(f"  [OK] Данные seller сохранены в {output_file}")
-            print(f"      Всего записей: {len(seller_data_collection)}")
-            logger.info(f"Данные seller сохранены в {output_file}")
-        
-        # 9. Итоговая статистика
+        # 8. Итоговая статистика
         print("\n" + "=" * 80)
         print("ИТОГОВАЯ СТАТИСТИКА")
         print("=" * 80)

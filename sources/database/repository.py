@@ -72,6 +72,7 @@ class ProductRepository:
                 existing_product.car_details = product.car_details
                 existing_product.seller_email = product.seller_email
                 existing_product.images = product.images
+                existing_product.seller_comment = product.seller_comment
                 # available остается без изменений (заглушка)
                 # updated_at обновится автоматически через onupdate
                 
@@ -91,6 +92,7 @@ class ProductRepository:
                     car_details=product.car_details,
                     seller_email=product.seller_email,
                     images=product.images,
+                    seller_comment=product.seller_comment,
                     available=None  # Заглушка
                 )
                 
@@ -246,10 +248,11 @@ class ProductRepository:
             item_description=db_product.item_description or {},
             car_details=db_product.car_details or {},
             seller_email=db_product.seller_email,
-            images=db_product.images or []
+            images=db_product.images or [],
+            seller_comment=db_product.seller_comment
         )
     
-    def save_seller(self, email: str, seller_data: Dict[str, Any], seller_comment: Optional[str] = None) -> bool:
+    def save_seller(self, email: str, seller_data: Dict[str, Any]) -> bool:
         """
         Сохранение продавца в БД
         
@@ -261,7 +264,6 @@ class ProductRepository:
         Args:
             email: Email продавца (PRIMARY KEY)
             seller_data: Словарь со всеми данными о продавце (извлеченными из скрипта)
-            seller_comment: Комментарий продавца (извлекается из HTML, может быть None)
             
         Returns:
             True если успешно, False в противном случае
@@ -320,8 +322,7 @@ class ProductRepository:
                     existing_seller.rating != rating or
                     existing_seller.short_name != short_name or
                     existing_seller.vat_code != vat_code or
-                    existing_seller.is_vat_enabled != is_vat_enabled or
-                    existing_seller.seller_comment != seller_comment
+                    existing_seller.is_vat_enabled != is_vat_enabled
                 )
                 
                 # Сравниваем JSONB поля через хеши
@@ -354,7 +355,6 @@ class ProductRepository:
                 existing_seller.working_hours = working_hours
                 existing_seller.country = country
                 existing_seller.current_holidays = current_holidays
-                existing_seller.seller_comment = seller_comment
                 # updated_at обновится автоматически через onupdate
                 
                 session.commit()
@@ -378,8 +378,7 @@ class ProductRepository:
                     is_vat_enabled=is_vat_enabled,
                     working_hours=working_hours,
                     country=country,
-                    current_holidays=current_holidays,
-                    seller_comment=seller_comment
+                    current_holidays=current_holidays
                 )
                 
                 session.add(db_seller)
@@ -424,18 +423,17 @@ class ProductRepository:
     def save_product_with_seller(
         self, 
         product: Product, 
-        seller_data: Optional[Dict[str, Any]] = None, 
-        seller_comment: Optional[str] = None
+        seller_data: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         Сохранение товара и продавца в одной транзакции
         
         Гарантирует атомарность операции: либо сохраняются оба, либо ни один.
+        seller_comment должен быть уже присвоен объекту product перед вызовом.
         
         Args:
-            product: Объект Product для сохранения
+            product: Объект Product для сохранения (должен содержать seller_comment, если есть)
             seller_data: Данные продавца (если есть)
-            seller_comment: Комментарий продавца (если есть)
             
         Returns:
             True если успешно, False в противном случае
@@ -487,7 +485,6 @@ class ProductRepository:
                     existing_seller.working_hours = working_hours
                     existing_seller.country = country
                     existing_seller.current_holidays = current_holidays
-                    existing_seller.seller_comment = seller_comment
                 else:
                     # Создаем нового продавца
                     db_seller = SellerModel(
@@ -506,8 +503,7 @@ class ProductRepository:
                         is_vat_enabled=is_vat_enabled,
                         working_hours=working_hours,
                         country=country,
-                        current_holidays=current_holidays,
-                        seller_comment=seller_comment
+                        current_holidays=current_holidays
                     )
                     session.add(db_seller)
             
@@ -525,6 +521,7 @@ class ProductRepository:
                 existing_product.car_details = product.car_details
                 existing_product.seller_email = product.seller_email
                 existing_product.images = product.images
+                existing_product.seller_comment = product.seller_comment
             else:
                 # Создаем новый товар
                 db_product = ProductModel(
@@ -538,6 +535,7 @@ class ProductRepository:
                     car_details=product.car_details,
                     seller_email=product.seller_email,
                     images=product.images,
+                    seller_comment=product.seller_comment,
                     available=None
                 )
                 session.add(db_product)

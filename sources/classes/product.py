@@ -24,7 +24,8 @@ class Product:
         item_description: Optional[Dict[str, Any]] = None,
         car_details: Optional[Dict[str, Any]] = None,
         seller_email: Optional[str] = None,
-        images: Optional[List[str]] = None
+        images: Optional[List[str]] = None,
+        seller_comment: Optional[str] = None
     ):
         """
         Инициализация товара
@@ -40,6 +41,7 @@ class Product:
             car_details: Детали автомобиля (make, series, model, year, engine_capacity, gearbox_code, mileage, vin_code, ...)
             seller_email: Email продавца (используется как ключ для связи с таблицей Sellers)
             images: Список URL изображений товара
+            seller_comment: Комментарий продавца о конкретном товаре (может отсутствовать)
         """
         self.part_id = part_id
         self.code = code
@@ -51,6 +53,7 @@ class Product:
         self.car_details = car_details or {}
         self.seller_email = seller_email
         self.images = images or []
+        self.seller_comment = seller_comment
     
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -69,7 +72,8 @@ class Product:
             'item_description': self.item_description,
             'car_details': self.car_details,
             'seller_email': self.seller_email,
-            'images': self.images
+            'images': self.images,
+            'seller_comment': self.seller_comment
         }
     
     def validate(self) -> Tuple[bool, Optional[str]]:
