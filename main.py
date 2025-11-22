@@ -5,7 +5,8 @@
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from sources.scrapers.rrr_scraper import RRRScraper
+# from sources.scrapers.rrr_scraper import RRRScraper
+from sources.scrapers import SeleniumBaseScraper
 from sources.parsers.rrr.steering_rack_parser import RRRSteeringRackParser
 from sources.database.repository import ProductRepository
 from sources.database.config import get_database_url
@@ -33,7 +34,8 @@ def main():
         # 1. Инициализация скрапера
         print("\n[1] Инициализация скрапера...")
         logger.info("Инициализация скрапера")
-        scraper = RRRScraper(headless=False)
+        scraper = SeleniumBaseScraper(headless=False)
+        scraper.start()
         print("  [OK] Скрапер готов")
         logger.info("Скрапер успешно инициализирован")
         
@@ -67,19 +69,12 @@ def main():
         print("  [OK] Страница открыта")
         logger.info("Страница успешно открыта")
         
-        # 4. Ожидание загрузки динамического контента
-        print("\n[4] Ожидание загрузки динамического контента...")
-        logger.debug("Ожидание загрузки динамического контента")
-        try:
-            # Ждем появления элементов товаров на странице
-            wait = WebDriverWait(scraper.driver, 40)
-            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "span.add-to-wishlist, div.products__items")))
-            print("  [OK] Динамический контент загружен")
-            logger.debug("Динамический контент загружен")
-        except Exception as e:
-            warning_msg = f"Таймаут ожидания элементов: {e}"
-            print(f"  [WARNING] {warning_msg}")
-            logger.warning(warning_msg, exc_info=True)
+        # 4. Ожидание загрузки JavaScript
+        # print("\n[4] Ожидание загрузки JavaScript...")
+        # time.sleep(7)  # Даем время на загрузку динамического контента
+        # print("  [OK] JavaScript загружен")
+
+        scraper.human_delay()  # Wait like a human reading
         
         # 5. Получение HTML и парсинг списка товаров
         print("\n[5] Парсинг списка товаров...")
@@ -124,22 +119,13 @@ def main():
                 print(f"      URL: {product.url}")
                 logger.debug(f"Переход на страницу товара: {product.url}")
                 scraper.get_page(product.url)
-                
-                # Ожидание загрузки динамического контента на странице товара
-                try:
-                    wait = WebDriverWait(scraper.driver, 40)
-                    # Ждем появления основных элементов страницы товара
-                    wait.until(EC.presence_of_element_located((By.TAG_NAME, "table")))
-                    print(f"      [OK] Страница загружена")
-                    logger.debug(f"Страница товара {product.part_id} загружена")
-                except Exception as e:
-                    warning_msg = f"Таймаут ожидания элементов для товара {product.part_id}: {e}"
-                    print(f"      [WARNING] {warning_msg}")
-                    logger.warning(warning_msg, exc_info=True)
+                scraper.human_delay()  # Даем время на загрузку
+                print(f"      [OK] Страница загружена")
                 
                 # 7.2. Извлечение детальной информации
                 print(f"  [2] Извлечение детальной информации...")
-                logger.debug(f"Извлечение детальной информации для товара {product.part_id}")
+                if not scraper.driver:
+                    raise Exception("Driver не инициализирован")
                 detail_data = parser.parse_product_detail_enhanced(scraper.driver)
                 
                 # 7.3. Обновление объекта Product
