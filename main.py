@@ -2,11 +2,19 @@
 Точка входа в проект MSG Buyer
 Парсинг товаров с сайта rrr.lt и сохранение в БД
 """
-import time
+import json
+from pathlib import Path
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from sources.scrapers.rrr_scraper import RRRScraper
 from sources.parsers.rrr.steering_rack_parser import RRRSteeringRackParser
 from sources.database.repository import ProductRepository
 from sources.database.config import get_database_url
+from sources.utils.logger import setup_logger
+
+# Настройка логирования
+logger = setup_logger("main")
 
 
 def main():
@@ -19,19 +27,29 @@ def main():
     
     scraper = None
     
+    logger.info("=" * 80)
+    logger.info("Запуск MSG Buyer - Парсинг товаров Steering Rack")
+    logger.info("=" * 80)
+    
     try:
         # 1. Инициализация скрапера
         print("\n[1] Инициализация скрапера...")
+        logger.info("Инициализация скрапера")
         scraper = RRRScraper(headless=False)
         print("  [OK] Скрапер готов")
+        logger.info("Скрапер успешно инициализирован")
         
         # 2. Инициализация репозитория БД
         print("\n[2] Инициализация подключения к БД...")
+        logger.info("Инициализация подключения к БД")
         database_url = get_database_url()
         if not database_url:
-            print("  [ERROR] DATABASE_URL не найден. Проверьте файл .env")
+            error_msg = "DATABASE_URL не найден. Проверьте файл .env"
+            print(f"  [ERROR] {error_msg}")
+            logger.error(error_msg)
             return
         
+        logger.info("Подключение к БД установлено")
         repository = ProductRepository(database_url)
         repository.create_tables()
         print("  [OK] Подключение к БД установлено")
@@ -39,45 +57,67 @@ def main():
         # 3. Открытие страницы steering rack
         print("\n[3] Открытие страницы steering rack...")
         url = "https://rrr.lt/en/parts-list/front-axle/driving-mechanism/steering-rack"
+        logger.info(f"Открытие страницы: {url}")
         success = scraper.get_page(url)
         
         if not success:
-            print("  [ERROR] Не удалось загрузить страницу")
+            error_msg = "Не удалось загрузить страницу"
+            print(f"  [ERROR] {error_msg}")
+            logger.error(error_msg)
             return
         
         print("  [OK] Страница открыта")
+        logger.info("Страница успешно открыта")
         
-        # 4. Ожидание загрузки JavaScript
-        print("\n[4] Ожидание загрузки JavaScript...")
-        time.sleep(15)  # Даем время на загрузку динамического контента
-        print("  [OK] JavaScript загружен")
+        # 4. Ожидание загрузки динамического контента
+        print("\n[4] Ожидание загрузки динамического контента...")
+        logger.debug("Ожидание загрузки динамического контента")
+        try:
+            # Ждем появления элементов товаров на странице
+            wait = WebDriverWait(scraper.driver, 20)
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "span.add-to-wishlist, div.products__items")))
+            print("  [OK] Динамический контент загружен")
+            logger.debug("Динамический контент загружен")
+        except Exception as e:
+            warning_msg = f"Таймаут ожидания элементов: {e}"
+            print(f"  [WARNING] {warning_msg}")
+            logger.warning(warning_msg, exc_info=True)
         
         # 5. Получение HTML и парсинг списка товаров
         print("\n[5] Парсинг списка товаров...")
+        logger.info("Начало парсинга списка товаров")
         html = scraper.get_page_html()
         parser = RRRSteeringRackParser()
         products = parser.parse_product_list(html)
         print(f"  [OK] Найдено товаров: {len(products)}")
+        logger.info(f"Найдено товаров: {len(products)}")
         
         if not products:
-            print("  [WARNING] Товары не найдены")
+            warning_msg = "Товары не найдены"
+            print(f"  [WARNING] {warning_msg}")
+            logger.warning(warning_msg)
             return
         
-        # 6. Берем первые 3 товара
-        products_to_process = products[:3]
-        print(f"\n[6] Обработка первых {len(products_to_process)} товаров...")
+        # 6. Обрабатываем все найденные товары
+        products_to_process = products
+        print(f"\n[6] Обработка всех {len(products_to_process)} товаров...")
+        logger.info(f"Начало обработки {len(products_to_process)} товаров")
         
         successful = 0
         failed = 0
+        seller_data_collection = []  # Для сбора данных seller для анализа
         
         # 7. Обработка каждого товара
         for i, product in enumerate(products_to_process, 1):
             print(f"\n{'=' * 80}")
             print(f"ТОВАР {i}/{len(products_to_process)}: {product.part_id} ({product.code})")
             print(f"{'=' * 80}")
+            logger.info(f"Обработка товара {i}/{len(products_to_process)}: part_id={product.part_id}, code={product.code}")
             
             if not product.url:
-                print(f"  [SKIP] Нет URL для товара")
+                warning_msg = f"Нет URL для товара {product.part_id}"
+                print(f"  [SKIP] {warning_msg}")
+                logger.warning(warning_msg)
                 failed += 1
                 continue
             
@@ -85,43 +125,94 @@ def main():
                 # 7.1. Переход на страницу товара
                 print(f"  [1] Переход на страницу товара...")
                 print(f"      URL: {product.url}")
+                logger.debug(f"Переход на страницу товара: {product.url}")
                 scraper.get_page(product.url)
-                time.sleep(15)  # Даем время на загрузку
-                print(f"      [OK] Страница загружена")
+                
+                # Ожидание загрузки динамического контента на странице товара
+                try:
+                    wait = WebDriverWait(scraper.driver, 20)
+                    # Ждем появления основных элементов страницы товара
+                    wait.until(EC.presence_of_element_located((By.TAG_NAME, "table")))
+                    print(f"      [OK] Страница загружена")
+                    logger.debug(f"Страница товара {product.part_id} загружена")
+                except Exception as e:
+                    warning_msg = f"Таймаут ожидания элементов для товара {product.part_id}: {e}"
+                    print(f"      [WARNING] {warning_msg}")
+                    logger.warning(warning_msg, exc_info=True)
                 
                 # 7.2. Извлечение детальной информации
                 print(f"  [2] Извлечение детальной информации...")
+                logger.debug(f"Извлечение детальной информации для товара {product.part_id}")
                 detail_data = parser.parse_product_detail_enhanced(scraper.driver)
                 
                 # 7.3. Обновление объекта Product
                 product.item_description = detail_data.get('item_description', {})
                 product.car_details = detail_data.get('car_details', {})
-                product.seller_info = detail_data.get('seller_info', {})
+                product.seller_email = detail_data.get('seller_email')
                 product.images = detail_data.get('images', [])
+                
+                seller_data = detail_data.get('seller_data', {})
+                seller_comment = detail_data.get('seller_comment')
                 
                 print(f"      [OK] Данные извлечены:")
                 print(f"        - Item Description: {len(product.item_description)} полей")
                 print(f"        - Car Details: {len(product.car_details)} полей")
-                print(f"        - Seller Info: {len(product.seller_info)} полей")
+                print(f"        - Seller Email: {product.seller_email or 'не найден'}")
+                print(f"        - Seller Data: {len(seller_data)} полей")
+                print(f"        - Seller Comment: {'найден' if seller_comment else 'не найден'}")
                 print(f"        - Images: {len(product.images)} изображений")
                 
-                # 7.4. Сохранение в БД
-                print(f"  [3] Сохранение в БД...")
-                if repository.save(product):
-                    print(f"      [OK] Товар сохранен в БД")
+                logger.debug(f"Данные извлечены для товара {product.part_id}: "
+                           f"item_description={len(product.item_description)} полей, "
+                           f"car_details={len(product.car_details)} полей, "
+                           f"seller_email={product.seller_email or 'не найден'}, "
+                           f"images={len(product.images)}")
+                
+                # Сбор данных для анализа
+                if seller_data:
+                    seller_data_collection.append({
+                        'product_part_id': product.part_id,
+                        'product_code': product.code,
+                        'seller_email': product.seller_email,
+                        'seller_data': seller_data
+                    })
+                
+                # 7.4. Сохранение товара и продавца в одной транзакции
+                print(f"  [3] Сохранение товара и продавца в БД...")
+                logger.info(f"Сохранение товара {product.part_id} и продавца в БД")
+                if repository.save_product_with_seller(product, seller_data, seller_comment):
+                    print(f"      [OK] Товар и продавец сохранены в БД")
+                    logger.info(f"Товар {product.part_id} успешно сохранен в БД")
                     successful += 1
                 else:
-                    print(f"      [ERROR] Не удалось сохранить товар в БД")
+                    error_msg = f"Не удалось сохранить товар {product.part_id} и продавца в БД"
+                    print(f"      [ERROR] {error_msg}")
+                    logger.error(error_msg)
                     failed += 1
                 
             except Exception as e:
-                print(f"  [ERROR] Ошибка при обработке товара: {e}")
-                import traceback
-                traceback.print_exc()
+                error_msg = f"Ошибка при обработке товара {product.part_id}: {e}"
+                print(f"  [ERROR] {error_msg}")
+                logger.error(error_msg, exc_info=True)
                 failed += 1
                 continue
         
-        # 8. Итоговая статистика
+        # 8. Сохранение данных seller для анализа
+        if seller_data_collection:
+            print("\n[8] Сохранение данных seller для анализа...")
+            logger.info(f"Сохранение данных seller для анализа: {len(seller_data_collection)} записей")
+            docs_dir = Path("docs")
+            docs_dir.mkdir(exist_ok=True)
+            
+            output_file = docs_dir / "seller_data_analysis.json"
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(seller_data_collection, f, indent=2, ensure_ascii=False)
+            
+            print(f"  [OK] Данные seller сохранены в {output_file}")
+            print(f"      Всего записей: {len(seller_data_collection)}")
+            logger.info(f"Данные seller сохранены в {output_file}")
+        
+        # 9. Итоговая статистика
         print("\n" + "=" * 80)
         print("ИТОГОВАЯ СТАТИСТИКА")
         print("=" * 80)
@@ -129,24 +220,30 @@ def main():
         print(f"Успешно сохранено: {successful}")
         print(f"Ошибок: {failed}")
         
-        print("\nБраузер останется открытым на 5 секунд...")
-        time.sleep(5)
+        logger.info("=" * 80)
+        logger.info("ИТОГОВАЯ СТАТИСТИКА")
+        logger.info(f"Обработано товаров: {len(products_to_process)}")
+        logger.info(f"Успешно сохранено: {successful}")
+        logger.info(f"Ошибок: {failed}")
+        logger.info("=" * 80)
         
     except Exception as e:
-        print(f"\n[ERROR] Ошибка при выполнении: {e}")
-        import traceback
-        traceback.print_exc()
+        error_msg = f"Критическая ошибка при выполнении: {e}"
+        print(f"\n[ERROR] {error_msg}")
+        logger.critical(error_msg, exc_info=True)
     
     finally:
-        # 9. Закрытие браузера
+        # 10. Закрытие браузера
         if scraper:
-            print("\n[9] Закрытие браузера...")
+            print("\n[10] Закрытие браузера...")
+            logger.info("Закрытие браузера")
             scraper.close()
             print("  [OK] Браузер закрыт")
         
         print("\n" + "=" * 80)
         print("Парсинг завершен")
         print("=" * 80)
+        logger.info("Парсинг завершен")
 
 
 if __name__ == "__main__":
