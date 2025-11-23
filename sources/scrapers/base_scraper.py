@@ -8,11 +8,15 @@ from selenium.webdriver.edge.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
+from sources.utils.logger import get_logger
+
 try:
     from webdriver_manager.microsoft import EdgeChromiumDriverManager
     WEBDRIVER_MANAGER_AVAILABLE = True
 except ImportError:
     WEBDRIVER_MANAGER_AVAILABLE = False
+
+logger = get_logger("scraper")
 
 
 class BaseScraper:
@@ -65,9 +69,9 @@ class BaseScraper:
         edge_path = self._find_edge_path()
         if edge_path:
             edge_options.binary_location = edge_path
-            print(f"[OK] Найден Edge: {edge_path}")
+            logger.debug(f"Найден Edge: {edge_path}")
         else:
-            print("[WARNING] Edge не найден в стандартных местах, используем системный путь")
+            logger.warning("Edge не найден в стандартных местах, используем системный путь")
         
         if self.headless:
             edge_options.add_argument('--headless')
@@ -82,27 +86,29 @@ class BaseScraper:
         # Попытка использовать встроенный драйвер Edge (Selenium 4.6+)
         # Если не получится, попробуем через webdriver-manager
         try:
-            print("Попытка использовать встроенный EdgeDriver...")
+            logger.debug("Попытка использовать встроенный EdgeDriver...")
             # В Selenium 4.6+ можно использовать Edge без указания Service
             # Selenium автоматически найдет драйвер
             self.driver = webdriver.Edge(options=edge_options)
-            print("[OK] Использован встроенный EdgeDriver")
+            logger.info("Использован встроенный EdgeDriver")
         except Exception as e:
-            print(f"[WARNING] Не удалось использовать встроенный драйвер: {e}")
+            logger.warning(f"Не удалось использовать встроенный драйвер: {e}")
             if WEBDRIVER_MANAGER_AVAILABLE:
-                print("Попытка скачать EdgeDriver через webdriver-manager...")
+                logger.debug("Попытка скачать EdgeDriver через webdriver-manager...")
                 try:
                     service = Service(EdgeChromiumDriverManager().install())
                     self.driver = webdriver.Edge(service=service, options=edge_options)
-                    print("[OK] EdgeDriver установлен через webdriver-manager")
+                    logger.info("EdgeDriver установлен через webdriver-manager")
                 except Exception as e2:
+                    logger.error(f"Не удалось инициализировать EdgeDriver через webdriver-manager: {e2}", exc_info=True)
                     raise Exception(f"Не удалось инициализировать EdgeDriver. Ошибка: {e2}")
             else:
+                logger.error(f"Не удалось инициализировать EdgeDriver. Установите webdriver-manager или обновите Selenium. Ошибка: {e}", exc_info=True)
                 raise Exception(f"Не удалось инициализировать EdgeDriver. Установите webdriver-manager или обновите Selenium. Ошибка: {e}")
         
         # Установка размера окна
         self.driver.set_window_size(*self.window_size)
-        print("[OK] Edge WebDriver инициализирован")
+        logger.info("Edge WebDriver инициализирован")
     
     def get_page(self, url: str, timeout: int = 10):
         """
@@ -116,7 +122,7 @@ class BaseScraper:
             bool: True если страница загружена успешно, False в противном случае
         """
         try:
-            print(f"Переход на страницу: {url}")
+            logger.debug(f"Переход на страницу: {url}")
             self.driver.get(url)
             
             # Ожидание загрузки страницы (проверка готовности DOM)
@@ -124,14 +130,14 @@ class BaseScraper:
                 lambda driver: driver.execute_script('return document.readyState') == 'complete'
             )
             
-            print("Страница успешно загружена")
+            logger.info(f"Страница успешно загружена: {url}")
             return True
             
         except TimeoutException:
-            print(f"Таймаут при загрузке страницы: {url}")
+            logger.warning(f"Таймаут при загрузке страницы: {url}")
             return False
         except Exception as e:
-            print(f"Ошибка при загрузке страницы: {e}")
+            logger.error(f"Ошибка при загрузке страницы {url}: {e}", exc_info=True)
             return False
     
     def wait_for_element(self, by, value, timeout: int = 10):
@@ -152,7 +158,7 @@ class BaseScraper:
             )
             return element
         except TimeoutException:
-            print(f"Элемент не найден: {by}={value}")
+            logger.warning(f"Элемент не найден: {by}={value}")
             return None
     
     def get_current_url(self) -> str:
@@ -178,7 +184,7 @@ class BaseScraper:
         """Закрыть браузер"""
         if self.driver:
             self.driver.quit()
-            print("Браузер закрыт")
+            logger.info("Браузер закрыт")
     
     def __enter__(self):
         """Поддержка контекстного менеджера (with statement)"""

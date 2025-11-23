@@ -8,6 +8,11 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from sources.classes.product import Product
+from sources.utils.logger import get_logger
+import json
+import re
+
+logger = get_logger("parser")
 
 
 class RRRSteeringRackParser:
@@ -46,7 +51,7 @@ class RRRSteeringRackParser:
                     products.append(product)
             except Exception as e:
                 # При ошибке парсинга записываем частичные данные
-                print(f"[WARNING] Ошибка парсинга товара: {e}")
+                logger.warning(f"Ошибка парсинга товара: {e}", exc_info=True)
                 # Можно попробовать извлечь хотя бы базовые данные
                 partial_product = self._parse_partial_product(element)
                 if partial_product:
@@ -54,7 +59,7 @@ class RRRSteeringRackParser:
         
         return products
     
-    def _find_product_elements(self, soup: BeautifulSoup) -> List:
+    def _find_product_elements(self, soup: BeautifulSoup) -> List[Any]:
         """
         Поиск элементов карточек товаров на странице
         
@@ -77,7 +82,7 @@ class RRRSteeringRackParser:
         
         return elements
     
-    def _parse_product_card(self, element) -> Optional[Product]:
+    def _parse_product_card(self, element: Any) -> Optional[Product]:
         """
         Парсинг одной карточки товара
         
@@ -124,7 +129,7 @@ class RRRSteeringRackParser:
         
         return product
     
-    def _parse_partial_product(self, element) -> Optional[Product]:
+    def _parse_partial_product(self, element: Any) -> Optional[Product]:
         """
         Попытка извлечь хотя бы частичные данные при ошибке парсинга
         
@@ -146,7 +151,7 @@ class RRRSteeringRackParser:
             pass
         return None
     
-    def _find_in_parent(self, element, attr_name: str, max_depth: int = 5) -> Optional[str]:
+    def _find_in_parent(self, element: Any, attr_name: str, max_depth: int = 5) -> Optional[str]:
         """
         Поиск атрибута в родительских элементах
         
@@ -435,18 +440,20 @@ class RRRSteeringRackParser:
         """
         Расширенный парсинг детальной страницы товара с использованием Selenium
         
-        Извлекает структурированные данные: item_description, car_details, seller_info, images
+        Извлекает структурированные данные: item_description, car_details, seller_email, seller_data, images
         
         Args:
             driver: Selenium WebDriver с открытой страницей товара
             
         Returns:
-            Словарь с данными: item_description, car_details, seller_info, images
+            Словарь с данными: item_description, car_details, seller_email, seller_data, images
         """
         result = {
             'item_description': {},
             'car_details': {},
-            'seller_info': {},
+            'seller_email': None,
+            'seller_data': {},
+            'seller_comment': None,
             'images': []
         }
         
@@ -454,25 +461,33 @@ class RRRSteeringRackParser:
             # Извлекаем Item description
             result['item_description'] = self._extract_item_description(driver)
         except Exception as e:
-            print(f"[WARNING] Ошибка извлечения Item description: {e}")
+            logger.warning(f"Ошибка извлечения Item description: {e}", exc_info=True)
         
         try:
             # Извлекаем Car details
             result['car_details'] = self._extract_car_details(driver)
         except Exception as e:
-            print(f"[WARNING] Ошибка извлечения Car details: {e}")
+            logger.warning(f"Ошибка извлечения Car details: {e}", exc_info=True)
         
         try:
-            # Извлекаем Seller info
-            result['seller_info'] = self._extract_seller_info(driver)
+            # Извлекаем Seller данные из скрипта
+            seller_info = self._extract_seller_data_from_script(driver)
+            result['seller_email'] = seller_info.get('email')
+            result['seller_data'] = seller_info.get('seller_data', {})
         except Exception as e:
-            print(f"[WARNING] Ошибка извлечения Seller info: {e}")
+            logger.warning(f"Ошибка извлечения Seller данных: {e}", exc_info=True)
+        
+        try:
+            # Извлекаем комментарий продавца
+            result['seller_comment'] = self._extract_seller_comment(driver)
+        except Exception as e:
+            logger.warning(f"Ошибка извлечения комментария продавца: {e}", exc_info=True)
         
         try:
             # Извлекаем Images
             result['images'] = self._extract_images(driver)
         except Exception as e:
-            print(f"[WARNING] Ошибка извлечения Images: {e}")
+            logger.warning(f"Ошибка извлечения Images: {e}", exc_info=True)
         
         return result
     
@@ -506,7 +521,7 @@ class RRRSteeringRackParser:
                             item_description['condition'] = value
         
         except Exception as e:
-            print(f"[WARNING] Ошибка парсинга Item description: {e}")
+            logger.warning(f"Ошибка парсинга Item description: {e}", exc_info=True)
         
         return item_description
     
@@ -675,6 +690,243 @@ class RRRSteeringRackParser:
         
         return car_details
     
+    def _extract_seller_data_from_script(self, driver: WebDriver) -> Dict[str, Any]:
+        """
+        Извлечение данных о seller из скрипта на странице
+        
+        Ищет скрипты с self.__next_f.push, извлекает JSON-строку,
+        декодирует unicode-экранированные символы и парсит данные о seller.
+        
+        Args:
+            driver: Selenium WebDriver с открытой страницей товара
+            
+        Returns:
+            Словарь с ключами: 'email' (str или None) и 'seller_data' (dict со всеми данными)
+        """
+        result: Dict[str, Any] = {
+            'email': None,
+            'seller_data': {}
+        }
+        
+        try:
+            import codecs
+            
+            # Получаем все скрипты
+            all_scripts = driver.find_elements(By.CSS_SELECTOR, "body > script")
+            
+            # Ищем скрипты с self.__next_f.push
+            for i, script in enumerate(all_scripts):
+                try:
+                    script_html = script.get_attribute('outerHTML')
+                    if not script_html or 'self.__next_f.push' not in script_html:
+                        continue
+                    
+                    # Извлекаем содержимое скрипта
+                    script_text = re.sub(r'<script[^>]*>', '', script_html, flags=re.IGNORECASE | re.DOTALL)
+                    script_text = re.sub(r'</script>', '', script_text, flags=re.IGNORECASE | re.DOTALL)
+                    script_text = script_text.strip()
+                    
+                    # Ищем self.__next_f.push([1,"JSON_STRING"])
+                    push_pattern = r'self\.__next_f\.push\(\[1,\s*"((?:[^"\\]|\\.)*)"\]\)'
+                    push_match = re.search(push_pattern, script_text, re.DOTALL)
+                    
+                    if not push_match:
+                        continue
+                    
+                    json_str_encoded = push_match.group(1)
+                    
+                    # Декодируем unicode-экранированные символы
+                    try:
+                        json_str_decoded = codecs.decode(json_str_encoded, 'unicode_escape')
+                    except (UnicodeDecodeError, ValueError):
+                        json_str_decoded = json_str_encoded
+                    
+                    # Пробуем распарсить JSON
+                    data = self._parse_json_from_string(json_str_decoded)
+                    if not data:
+                        continue
+                    
+                    # Ищем seller объект в данных
+                    found_seller = self._find_seller_in_data(data)
+                    if found_seller and 'email' in found_seller:
+                        result['email'] = found_seller.get('email')
+                        result['seller_data'] = found_seller
+                        logger.info(f"Найден seller в скрипте #{i+1} с email: {result['email']}")
+                        break
+                        
+                except Exception as e:
+                    logger.warning(f"Ошибка при обработке скрипта #{i+1}: {e}", exc_info=True)
+                    continue
+        
+        except Exception as e:
+            logger.warning(f"Ошибка извлечения seller данных из скрипта: {e}", exc_info=True)
+        
+        return result
+    
+    def _parse_json_from_string(self, json_str: str) -> Optional[Dict[str, Any]]:
+        """
+        Парсинг JSON из строки с обработкой различных форматов
+        
+        Args:
+            json_str: JSON строка для парсинга
+            
+        Returns:
+            Распарсенный JSON объект или None
+        """
+        # Метод 1: Пробуем распарсить как чистый JSON
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError:
+            pass
+        
+        # Метод 2: Ищем JSON объект с productBySKU
+        product_by_sku_pos = json_str.find('"productBySKU"')
+        if product_by_sku_pos != -1:
+            # Ищем начало объекта
+            start_pos = json_str.rfind('{', 0, product_by_sku_pos)
+            if start_pos != -1:
+                # Ищем конец объекта через баланс скобок
+                json_obj_str = self._extract_json_object(json_str, start_pos)
+                if json_obj_str:
+                    try:
+                        return json.loads(json_obj_str)
+                    except json.JSONDecodeError:
+                        pass
+        
+        return None
+    
+    def _extract_json_object(self, json_str: str, start_pos: int, max_length: int = 500000) -> Optional[str]:
+        """
+        Извлечение JSON объекта из строки по балансу скобок
+        
+        Args:
+            json_str: JSON строка
+            start_pos: Позиция начала объекта
+            max_length: Максимальная длина для поиска
+            
+        Returns:
+            JSON строка объекта или None
+        """
+        brace_count = 0
+        end_pos = start_pos
+        in_string = False
+        escape_next = False
+        
+        for j in range(start_pos, min(start_pos + max_length, len(json_str))):
+            char = json_str[j]
+            
+            if escape_next:
+                escape_next = False
+                continue
+            
+            if char == '\\':
+                escape_next = True
+                continue
+            
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+            
+            if not in_string:
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        end_pos = j + 1
+                        break
+        
+        if end_pos > start_pos:
+            return json_str[start_pos:end_pos]
+        return None
+    
+    def _find_seller_in_data(self, obj: Any, path: str = "") -> Optional[Dict[str, Any]]:
+        """
+        Рекурсивный поиск seller объекта в данных
+        
+        Args:
+            obj: Объект для поиска (dict, list или другой тип)
+            path: Путь к текущему объекту (для отладки)
+            
+        Returns:
+            Найденный seller объект или None
+        """
+        if isinstance(obj, dict):
+            # Проверяем productBySKU.seller
+            if 'productBySKU' in obj:
+                product = obj['productBySKU']
+                if isinstance(product, dict) and 'seller' in product:
+                    seller = product['seller']
+                    if isinstance(seller, dict) and 'email' in seller:
+                        return seller
+            
+            # Проверяем прямой seller
+            if 'seller' in obj and isinstance(obj['seller'], dict):
+                seller = obj['seller']
+                if 'email' in seller:
+                    return seller
+            
+            # Рекурсивно ищем во вложенных объектах
+            for key, value in obj.items():
+                result = self._find_seller_in_data(value, f"{path}.{key}" if path else key)
+                if result:
+                    return result
+        
+        elif isinstance(obj, list):
+            for idx, item in enumerate(obj):
+                result = self._find_seller_in_data(item, f"{path}[{idx}]")
+                if result:
+                    return result
+        
+        return None
+    
+    def _extract_seller_comment(self, driver: WebDriver) -> Optional[str]:
+        """
+        Извлечение комментария продавца из HTML
+        
+        Ищет элемент по CSS селектору:
+        body > div.MuiBox-root.mui-oqf2yl > div > div.MuiContainer-root.MuiContainer-disableGutters.mui-bay56u > 
+        div.MuiPaper-root.MuiPaper-elevation.MuiPaper-rounded.MuiPaper-elevation3.MuiCard-root.mui-1egwvqv > 
+        div > div.MuiBox-root.mui-hwcfm4 > div > div.MuiBox-root.mui-eti4d7 > 
+        div.MuiBox-root.mui-a39hc0 > pre
+        
+        Args:
+            driver: Selenium WebDriver с открытой страницей товара
+            
+        Returns:
+            Текст комментария или None, если комментарий не найден
+        """
+        try:
+            selector = (
+                "body > div.MuiBox-root.mui-oqf2yl > div > "
+                "div.MuiContainer-root.MuiContainer-disableGutters.mui-bay56u > "
+                "div.MuiPaper-root.MuiPaper-elevation.MuiPaper-rounded.MuiPaper-elevation3.MuiCard-root.mui-1egwvqv > "
+                "div > div.MuiBox-root.mui-hwcfm4 > div > div.MuiBox-root.mui-eti4d7 > "
+                "div.MuiBox-root.mui-a39hc0 > pre"
+            )
+            
+            # Пробуем найти элемент (может отсутствовать)
+            try:
+                wait = WebDriverWait(driver, 2)  # Короткое ожидание, т.к. элемент может отсутствовать
+                comment_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
+                comment_text = comment_element.text.strip()
+                
+                if comment_text:
+                    logger.debug(f"Комментарий продавца найден, длина: {len(comment_text)}")
+                    return comment_text
+                else:
+                    logger.debug("Элемент комментария найден, но текст пуст")
+                    return None
+                    
+            except Exception:
+                # Элемент не найден - это нормально, комментарий может отсутствовать
+                logger.debug("Комментарий продавца не найден (элемент отсутствует)")
+                return None
+                
+        except Exception as e:
+            logger.warning(f"Ошибка извлечения комментария продавца: {e}", exc_info=True)
+            return None
+    
     def _extract_seller_info(self, driver: WebDriver) -> Dict[str, Any]:
         """Извлечение Seller info"""
         seller_info = {}
@@ -728,7 +980,7 @@ class RRRSteeringRackParser:
                 pass
         
         except Exception as e:
-            print(f"[WARNING] Ошибка парсинга Seller info: {e}")
+            logger.warning(f"Ошибка парсинга Seller info: {e}", exc_info=True)
         
         return seller_info
     
@@ -778,6 +1030,6 @@ class RRRSteeringRackParser:
             return unique_images
         
         except Exception as e:
-            print(f"[WARNING] Ошибка парсинга Images: {e}")
+            logger.warning(f"Ошибка парсинга Images: {e}", exc_info=True)
             return []
     

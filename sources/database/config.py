@@ -2,8 +2,12 @@
 Конфигурация для подключения к базе данных
 """
 import os
+import re
 from typing import Optional
 from pathlib import Path
+from sources.utils.logger import get_logger
+
+logger = get_logger("config")
 
 # Загружаем переменные окружения из .env файла
 try:
@@ -20,12 +24,30 @@ except ImportError:
     pass
 
 
+def _validate_database_url(url: str) -> bool:
+    """
+    Валидация формата URL базы данных PostgreSQL
+    
+    Args:
+        url: URL для проверки
+        
+    Returns:
+        True если URL валиден, False в противном случае
+    """
+    if not url:
+        return False
+    
+    # Паттерн для PostgreSQL URL: postgresql://user:password@host:port/database
+    pattern = r'^postgresql://[^:]+:[^@]+@[^:]+:\d+/\w+'
+    return bool(re.match(pattern, url))
+
+
 def get_database_url() -> Optional[str]:
     """
     Получение URL подключения к БД из переменных окружения
     
     Returns:
-        URL подключения или None
+        URL подключения или None, если URL не найден или невалиден
     """
     # Пробуем разные варианты переменных окружения
     # Railway предоставляет DATABASE_URL и DATABASE_PUBLIC_URL
@@ -46,6 +68,11 @@ def get_database_url() -> Optional[str]:
         
         if all([host, user, password, database]):
             database_url = f"postgresql://{user}:{password}@{host}:{port}/{database}"
+    
+    # Валидация URL
+    if database_url and not _validate_database_url(database_url):
+        logger.warning(f"URL БД имеет неверный формат: {database_url[:50]}...")
+        return None
     
     return database_url
 
