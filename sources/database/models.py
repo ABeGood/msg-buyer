@@ -1,7 +1,7 @@
 """
 SQLAlchemy модели для базы данных
 """
-from sqlalchemy import Column, Integer, String, Numeric, Text, DateTime, Index, Boolean
+from sqlalchemy import Column, Integer, String, Numeric, Text, DateTime, Index, Boolean, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime, timezone
@@ -147,4 +147,61 @@ class SellerModel(Base):
     
     def __repr__(self) -> str:
         return f"SellerModel(email={self.email}, name={self.name})"
+
+
+class EmailLogModel(Base):
+    """
+    SQLAlchemy модель для таблицы email_logs
+    
+    Хранит историю отправленных email сообщений продавцам
+    """
+    __tablename__ = 'email_logs'
+    
+    # PRIMARY KEY
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Основные поля
+    seller_email = Column(String(255), nullable=False)  # Email продавца
+    product_part_id = Column(String(50), nullable=True)  # ID товара (может быть NULL для bulk запросов)
+    subject = Column(String(500), nullable=False)  # Тема письма
+    body = Column(Text, nullable=False)  # Тело письма
+    
+    # Статус и метаданные
+    status = Column(String(50), nullable=False, default='sent')  # sent, failed, bounced
+    error_message = Column(Text, nullable=True)  # Сообщение об ошибке (если status=failed)
+    sent_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    response_received = Column(Boolean, default=False, nullable=False)  # Получен ли ответ
+    response_at = Column(DateTime, nullable=True)  # Когда получен ответ
+    
+    # Индексы
+    __table_args__ = (
+        Index('idx_email_logs_seller_email', 'seller_email'),
+        Index('idx_email_logs_product_part_id', 'product_part_id'),
+        Index('idx_email_logs_status', 'status'),
+        Index('idx_email_logs_sent_at', 'sent_at'),
+        Index('idx_email_logs_response_received', 'response_received'),
+    )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Преобразование в словарь
+        
+        Returns:
+            Словарь с данными email лога
+        """
+        return {
+            'id': self.id,
+            'seller_email': self.seller_email,
+            'product_part_id': self.product_part_id,
+            'subject': self.subject,
+            'body': self.body,
+            'status': self.status,
+            'error_message': self.error_message,
+            'sent_at': self.sent_at.isoformat() if self.sent_at else None,
+            'response_received': self.response_received,
+            'response_at': self.response_at.isoformat() if self.response_at else None
+        }
+    
+    def __repr__(self) -> str:
+        return f"EmailLogModel(id={self.id}, seller_email={self.seller_email}, status={self.status})"
 

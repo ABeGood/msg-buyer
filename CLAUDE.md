@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MSG Buyer is a web scraping application that parses auto parts data from rrr.lt and stores it in a PostgreSQL database. Currently focused on steering rack products.
+MSG Buyer is a web scraping application that parses auto parts data from rrr.lt and stores it in a PostgreSQL database. Currently focused on steering rack products. Includes email service for contacting sellers.
 
 ## Commands
 
@@ -14,6 +14,15 @@ pip install -r requirements.txt
 
 # Run the scraper
 python main.py
+
+# Send email inquiry to seller
+python send_inquiry.py --part-id P123456 --message "..." --buyer-name "..." --buyer-email "..."
+
+# Check email responses
+python send_inquiry.py --check-responses
+
+# Run email examples
+python email_example.py
 ```
 
 ## Architecture
@@ -32,13 +41,27 @@ python main.py
 - **sources/classes/product.py**: Domain model with fields: part_id, code, price, url, source_site, category, item_description, car_details, seller_info, images
 
 - **sources/database/**: SQLAlchemy with PostgreSQL (JSONB for flexible fields)
-  - `models.py`: ProductModel ORM mapping
+  - `models.py`: ProductModel, SellerModel, EmailLogModel ORM mappings
   - `repository.py`: CRUD operations with upsert logic (save updates if part_id exists)
   - `config.py`: Database URL from .env (supports DATABASE_URL, DATABASE_PUBLIC_URL, or individual PG* vars)
 
+- **sources/services/**: External integrations
+  - `email_service.py`: Gmail SMTP/IMAP service for sending inquiries and parsing responses
+  - `email_templates.py`: Email templates for various inquiry types
+
 ## Configuration
 
-Requires `.env` file with PostgreSQL connection:
-```
+Requires `.env` file with PostgreSQL connection and email credentials:
+```env
+# Database
 DATABASE_URL=postgresql://user:pass@host:port/dbname
+
+# Email (Gmail)
+SMTP_USER=your-email@gmail.com
+SMTP_PASSWORD=your-app-password
+SENDER_EMAIL=your-email@gmail.com
+SENDER_NAME=MSG Buyer
 ```
+
+See `.env.email.example` for full configuration options.
+See `EMAIL_SERVICE.md` for detailed email service documentation.
