@@ -8,7 +8,7 @@ SeleniumBaseScraper - скрапер с обходом Cloudflare через Sel
 """
 import time
 import random
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List, Generator
 
 from seleniumbase import SB
 from selenium.webdriver.support.ui import WebDriverWait
@@ -30,8 +30,8 @@ class SeleniumBaseScraper(BaseScraper):
         self,
         headless: bool = False,
         window_size: Tuple[int, int] = (1920, 1080),
-        min_delay: float = 2.0,
-        max_delay: float = 5.0
+        min_delay: float = 0.5,
+        max_delay: float = 1.5
     ):
         """
         Инициализация SeleniumBaseScraper
@@ -99,7 +99,6 @@ class SeleniumBaseScraper(BaseScraper):
             if self._handle_cloudflare_challenge():
                 print("[OK] Cloudflare challenge пройден")
 
-            self.random_delay()
             print("Страница успешно загружена")
             return True
 
@@ -114,29 +113,38 @@ class SeleniumBaseScraper(BaseScraper):
         Returns:
             bool: True если challenge был обнаружен и пройден
         """
+        start_total = time.time()
+        print("[CF] Проверка Cloudflare challenge...")
+
         try:
             # Проверяем наличие кнопки Verify
+            start = time.time()
             if self.sb.is_element_visible('input[value*="Verify"]'):
-                print("[INFO] Обнаружена кнопка Verify, кликаем...")
+                print(f"[CF] Кнопка Verify найдена ({time.time() - start:.2f}s), кликаем...")
                 self.sb.uc_click('input[value*="Verify"]')
-                time.sleep(3)
+                time.sleep(1)
+                print(f"[CF] Verify пройден, всего: {time.time() - start_total:.2f}s")
                 return True
+            print(f"[CF] Шаг 1 - Verify check: {time.time() - start:.2f}s")
 
             # Проверяем наличие Turnstile CAPTCHA
+            start = time.time()
             if self.sb.is_element_visible('iframe[title*="Cloudflare"]'):
-                print("[INFO] Обнаружен Cloudflare iframe, пытаемся решить...")
+                print(f"[CF] Cloudflare iframe найден ({time.time() - start:.2f}s), решаем...")
                 try:
                     self.sb.uc_gui_click_captcha()
-                    time.sleep(3)
+                    time.sleep(1)
+                    print(f"[CF] CAPTCHA пройдена, всего: {time.time() - start_total:.2f}s")
                     return True
-                except:
-                    pass
+                except Exception as e:
+                    print(f"[CF] Ошибка CAPTCHA: {e}")
+            print(f"[CF] Шаг 2 - iframe check: {time.time() - start:.2f}s")
 
             # Альтернативный метод: поиск checkbox в iframe
+            start = time.time()
             try:
                 from selenium.webdriver.common.by import By
 
-                # Пробуем найти iframe с Cloudflare challenge
                 iframe_selectors = [
                     "iframe[title='Widget containing a Cloudflare security challenge']",
                     "iframe[title*='Cloudflare']",
@@ -145,19 +153,19 @@ class SeleniumBaseScraper(BaseScraper):
 
                 for selector in iframe_selectors:
                     try:
-                        WebDriverWait(self.driver, 5).until(
+                        WebDriverWait(self.driver, 1.5).until(
                             EC.frame_to_be_available_and_switch_to_it((By.CSS_SELECTOR, selector))
                         )
+                        print(f"[CF] iframe найден: {selector}")
 
-                        # Кликаем на checkbox
-                        checkbox = WebDriverWait(self.driver, 5).until(
+                        checkbox = WebDriverWait(self.driver, 1.5).until(
                             EC.element_to_be_clickable((By.CSS_SELECTOR, "label.ctp-checkbox-label, input[type='checkbox']"))
                         )
                         checkbox.click()
 
-                        # Возвращаемся к основному контенту
                         self.driver.switch_to.default_content()
-                        time.sleep(3)
+                        time.sleep(1)
+                        print(f"[CF] Checkbox кликнут, всего: {time.time() - start_total:.2f}s")
                         return True
                     except:
                         self.driver.switch_to.default_content()
@@ -165,11 +173,13 @@ class SeleniumBaseScraper(BaseScraper):
 
             except Exception:
                 pass
+            print(f"[CF] Шаг 3 - iframe checkbox: {time.time() - start:.2f}s")
 
+            print(f"[CF] Challenge не обнаружен, всего: {time.time() - start_total:.2f}s")
             return False
 
         except Exception as e:
-            print(f"[WARNING] Ошибка при обработке Cloudflare challenge: {e}")
+            print(f"[CF] Ошибка: {e}, всего: {time.time() - start_total:.2f}s")
             return False
 
     def wait_for_element(self, by, value, timeout: int = 10):
@@ -225,9 +235,77 @@ class SeleniumBaseScraper(BaseScraper):
         """
         Задержка, имитирующая время на чтение страницы
         """
-        delay = random.gauss(5, 2)
-        delay = max(2, min(delay, 10))
+        delay = random.gauss(2, 1)
+        delay = max(0.5, min(delay, 4))
         time.sleep(delay)
+
+    def wait_for_page_load(self, timeout: int = 15) -> bool:
+        """
+        Ожидание полной загрузки страницы
+
+        Args:
+            timeout: Максимальное время ожидания в секундах
+
+        Returns:
+            bool: True если страница загружена
+        """
+        try:
+            # Ждем document.readyState == complete
+            WebDriverWait(self.driver, timeout).until(
+                lambda d: d.execute_script("return document.readyState") == "complete"
+            )
+
+            # Дополнительно ждем пока не появятся товары на странице
+            from selenium.webdriver.common.by import By
+            try:
+                WebDriverWait(self.driver, timeout).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "[data-part-id], .add-to-wishlist, .MuiCard-root"))
+                )
+            except TimeoutException:
+                pass  # Не критично если не найдено
+
+            return True
+
+        except Exception as e:
+            print(f"[WARNING] Таймаут ожидания загрузки: {e}")
+            return False
+
+    def dismiss_cookie_dialog(self) -> bool:
+        """
+        Закрытие cookie диалога (Accept All)
+
+        Returns:
+            bool: True если диалог закрыт
+        """
+        accept_selectors = [
+            "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
+            "#CybotCookiebotDialogBodyButtonAccept",
+            "button[id*='Accept']",
+            ".CybotCookiebotDialogBodyButton"
+        ]
+
+        try:
+            for selector in accept_selectors:
+                try:
+                    if self.sb.is_element_visible(selector):
+                        self.sb.uc_click(selector)
+                        print("[OK] Cookie диалог закрыт")
+                        time.sleep(0.5)
+                        return True
+                except:
+                    continue
+
+            # Попробуем закрыть крестиком
+            close_btn = ".CybotCookiebotBannerCloseButton"
+            if self.sb.is_element_visible(close_btn):
+                self.sb.uc_click(close_btn)
+                print("[OK] Cookie диалог закрыт (крестик)")
+                return True
+
+            return False
+        except Exception as e:
+            print(f"[WARNING] Не удалось закрыть cookie диалог: {e}")
+            return False
 
     def scroll_down(self):
         """
@@ -269,6 +347,43 @@ class SeleniumBaseScraper(BaseScraper):
             self.sb = None
             self.driver = None
             print("Браузер закрыт")
+
+    def get_steering_racks_pages(
+        self,
+        start_page: int = 1,
+        end_page: int = 10
+    ) -> Generator[str, None, None]:
+        """
+        Генератор для получения HTML страниц со списком steering racks
+
+        Args:
+            start_page: Начальная страница (1-indexed)
+            end_page: Конечная страница (включительно)
+
+        Yields:
+            str: HTML каждой страницы
+        """
+        for page_num in range(start_page, end_page + 1):
+            if page_num == 1:
+                url = "https://rrr.lt/en/search?cpc=333&prs=1"
+            else:
+                url = f"https://rrr.lt/en/search?cpc=333&prs=1&page={page_num}"
+            print(f"\n[PAGE {page_num}/{end_page}] Загрузка страницы...")
+
+            if self.get_page(url, timeout=3):
+                # self.wait_for_page_load(timeout=2)
+                html = self.get_page_html()
+
+                # Проверяем, есть ли товары на странице
+                if 'add-to-wishlist' not in html and 'data-part-id' not in html:
+                    print(f"[INFO] Страница {page_num} пуста, завершаем")
+                    break
+
+                yield html
+                self.random_delay(0.01, 1.5)
+            else:
+                print(f"[ERROR] Не удалось загрузить страницу {page_num}")
+                break
 
     def __enter__(self):
         """Поддержка контекстного менеджера"""

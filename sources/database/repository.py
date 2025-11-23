@@ -1,7 +1,7 @@
 """
 Репозиторий для работы с товарами в базе данных
 """
-from typing import Optional
+from typing import Optional, List
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import SQLAlchemyError
@@ -206,6 +206,29 @@ class ProductRepository:
         finally:
             session.close()
     
+    def get_all(self, limit: Optional[int] = None) -> List[Product]:
+        """
+        Получение всех товаров из БД
+
+        Args:
+            limit: Максимальное количество товаров (опционально)
+
+        Returns:
+            Список объектов Product
+        """
+        session: Session = self.SessionLocal()
+        try:
+            query = session.query(ProductModel)
+            if limit:
+                query = query.limit(limit)
+            db_products = query.all()
+            return [self._db_to_product(p) for p in db_products]
+        except SQLAlchemyError as e:
+            print(f"[ERROR] Ошибка при получении товаров: {e}")
+            return []
+        finally:
+            session.close()
+
     def _db_to_product(self, db_product: ProductModel) -> Product:
         """
         Преобразование ProductModel в Product

@@ -481,7 +481,7 @@ class RRRSteeringRackParser:
         item_description = {}
         
         try:
-            wait = WebDriverWait(driver, 10)
+            wait = WebDriverWait(driver, 2)
             heading = wait.until(EC.presence_of_element_located(
                 (By.XPATH, "//h3[contains(text(), 'Item description')] | //h4[contains(text(), 'Item description')]")
             ))
@@ -532,7 +532,7 @@ class RRRSteeringRackParser:
         # Метод 1: Через селектор
         try:
             selector = "body > div.MuiBox-root.mui-oqf2yl > div > div.MuiContainer-root.MuiContainer-disableGutters.mui-bay56u > div.MuiPaper-root.MuiPaper-elevation.MuiPaper-rounded.MuiPaper-elevation3.MuiCard-root.mui-1egwvqv > div > div.MuiBox-root.mui-oapo5e > div.MuiBox-root.mui-dztwg9 > div:nth-child(2) > div"
-            wait = WebDriverWait(driver, 5)
+            wait = WebDriverWait(driver, 2)
             car_details_container = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
             table = car_details_container.find_element(By.TAG_NAME, "table")
             rows = table.find_elements(By.TAG_NAME, "tr")
@@ -553,7 +553,7 @@ class RRRSteeringRackParser:
         
         # Метод 2: Через заголовок "Car details"
         try:
-            wait = WebDriverWait(driver, 5)
+            wait = WebDriverWait(driver, 2)
             heading = wait.until(EC.presence_of_element_located(
                 (By.XPATH, "//h3[contains(text(), 'Car details')] | //h4[contains(text(), 'Car details')]")
             ))
@@ -680,7 +680,7 @@ class RRRSteeringRackParser:
         seller_info = {}
         
         try:
-            wait = WebDriverWait(driver, 10)
+            wait = WebDriverWait(driver, 2)
             
             # Ищем контейнер продавца
             seller_container = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".mui-eti4d7, .mui-hwcfm4")))
