@@ -1,0 +1,247 @@
+"""
+Utilities for comparing product prices with catalogs
+"""
+import os
+import pandas as pd
+from typing import Optional, List, Dict, Any
+from sources.database.repository import ProductRepository
+from sources.database.config import get_database_url
+from sources.classes.product import Product
+from sources.utils.logger import get_logger
+
+logger = get_logger("compare_utils")
+
+# Path to CSV files (relative to project root)
+CSV_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def compare_products_with_catalog(
+    table: str,
+    price_delta_perc: float
+) -> pd.DataFrame:
+    """
+    Compare product prices from DB with catalog (eur.csv or gur.csv)
+
+    Args:
+        table: Catalog table name ('gur' or 'eur')
+        price_delta_perc: Multiplier for allowed price difference (e.g., 1.1 for +10%)
+
+    Returns:
+        DataFrame with found products and price classification
+    """
+    if table not in ('gur', 'eur'):
+        raise ValueError(f"table must be 'gur' or 'eur', got: {table}")
+
+    # Load CSV catalog
+    csv_path = os.path.join(CSV_DIR, f"{table}.csv")
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"Catalog file not found: {csv_path}")
+
+    catalog_df = pd.read_csv(csv_path)
+    logger.info(f"Loaded catalog {table}.csv: {len(catalog_df)} rows")
+
+    # Get products from DB
+    database_url = get_database_url()
+    if not database_url:
+        raise ValueError("DATABASE_URL not found in environment variables")
+
+    repo = ProductRepository(database_url)
+    products = repo.get_all()
+    logger.info(f"Got {len(products)} products from DB")
+
+    if not products:
+        logger.warning("No products in DB to compare")
+        return pd.DataFrame()
+
+    # Search results
+    found_items: List[Dict[str, Any]] = []
+
+    for product in products:
+        # Extract codes from item_description
+        item_desc = product.item_description or {}
+        oem_code = item_desc.get('oem_code', '')
+        other_codes = item_desc.get('other_codes', [])
+        manufacturer_code = item_desc.get('manufacturer_code', '')
+
+        # Convert other_codes to list of strings
+        if isinstance(other_codes, str):
+            other_codes = [other_codes] if other_codes else []
+        elif not isinstance(other_codes, list):
+            other_codes = []
+
+        # Search for matches in catalog
+        match_result = _find_in_catalog(
+            catalog_df,
+            oem_code=oem_code,
+            other_codes=other_codes,
+            manufacturer_code=manufacturer_code,
+            product=product
+        )
+
+        if match_result['found']:
+            # Add product data and match info
+            found_item = {
+                'part_id': product.part_id,
+                'code': product.code,
+                'price': product.price,
+                'url': product.url,
+                'source_site': product.source_site,
+                'category': product.category,
+                'oem_code': oem_code,
+                'other_codes': ' | '.join(other_codes) if other_codes else '',
+                'manufacturer_code': manufacturer_code,
+                'matched_by': match_result['matched_by'],
+                'matched_value': match_result['matched_value'],
+                'catalog_price_eur': match_result['price_eur'],
+                'catalog_segments': match_result['segments_names'],
+                'catalog_car_model': match_result['car_model'],
+                'match_count': match_result['match_count']
+            }
+            found_items.append(found_item)
+
+    if not found_items:
+        logger.info("No matches found with catalog")
+        return pd.DataFrame()
+
+    # Create DataFrame from found products
+    result_df = pd.DataFrame(found_items)
+
+    # Price classification
+    result_df['price_classification'] = result_df.apply(
+        lambda row: _classify_price(
+            price=row['price'],
+            catalog_price_eur=row['catalog_price_eur'],
+            segments_names=row['catalog_segments'],
+            price_delta_perc=price_delta_perc
+        ),
+        axis=1
+    )
+
+    logger.info(f"Found {len(result_df)} matches with catalog")
+    logger.info(f"Price classification: {result_df['price_classification'].value_counts().to_dict()}")
+
+    return result_df
+
+
+def _find_in_catalog(
+    catalog_df: pd.DataFrame,
+    oem_code: str,
+    other_codes: List[str],
+    manufacturer_code: str,
+    product: Product
+) -> Dict[str, Any]:
+    """
+    Search for product in catalog by codes
+
+    Args:
+        catalog_df: Catalog DataFrame
+        oem_code: Product OEM code
+        other_codes: List of other codes
+        manufacturer_code: Manufacturer code
+        product: Product object for logging
+
+    Returns:
+        Dictionary with search results
+    """
+    result = {
+        'found': False,
+        'matched_by': None,
+        'matched_value': None,
+        'price_eur': None,
+        'segments_names': None,
+        'car_model': None,
+        'match_count': 0
+    }
+
+    # Function to search code in oes_numbers string
+    def code_in_oes(code: str, oes_numbers: str) -> bool:
+        if not code or not oes_numbers:
+            return False
+        # Split oes_numbers by " | " and check for exact match
+        oes_list = [x.strip() for x in str(oes_numbers).split(' | ')]
+        return code.strip().upper() in [x.upper() for x in oes_list]
+
+    matched_rows = pd.DataFrame()
+    matched_by = None
+    matched_value = None
+
+    # Search by oem_code
+    if oem_code:
+        mask = catalog_df['oes_numbers'].apply(lambda x: code_in_oes(oem_code, x))
+        if mask.any():
+            matched_rows = catalog_df[mask]
+            matched_by = 'oem_code'
+            matched_value = oem_code
+
+    # Search by manufacturer_code (if not found by oem_code)
+    if matched_rows.empty and manufacturer_code:
+        mask = catalog_df['oes_numbers'].apply(lambda x: code_in_oes(manufacturer_code, x))
+        if mask.any():
+            matched_rows = catalog_df[mask]
+            matched_by = 'manufacturer_code'
+            matched_value = manufacturer_code
+
+    # Search by other_codes (if not found by previous)
+    if matched_rows.empty and other_codes:
+        for code in other_codes:
+            if code:
+                mask = catalog_df['oes_numbers'].apply(lambda x: code_in_oes(code, x))
+                if mask.any():
+                    matched_rows = catalog_df[mask]
+                    matched_by = 'other_codes'
+                    matched_value = code
+                    break
+
+    if not matched_rows.empty:
+        # Take first found row to get data
+        first_match = matched_rows.iloc[0]
+        result['found'] = True
+        result['matched_by'] = matched_by
+        result['matched_value'] = matched_value
+        result['price_eur'] = first_match.get('price_eur', 0)
+        result['segments_names'] = first_match.get('segments_names', '')
+        result['car_model'] = first_match.get('car_model', '')
+        result['match_count'] = len(matched_rows)
+
+        logger.info(
+            f"Product {product.part_id}: found {len(matched_rows)} matches "
+            f"by {matched_by}='{matched_value}'"
+        )
+    else:
+        logger.debug(
+            f"Product {product.part_id}: no matches found "
+            f"(oem_code='{oem_code}', manufacturer_code='{manufacturer_code}', "
+            f"other_codes={other_codes})"
+        )
+
+    return result
+
+
+def _classify_price(
+    price: Optional[float],
+    catalog_price_eur: Optional[float],
+    segments_names: Optional[str],
+    price_delta_perc: float
+) -> str:
+    """
+    Classify product price
+
+    Args:
+        price: Product price from DB
+        catalog_price_eur: Price from catalog in EUR
+        segments_names: Segment name from catalog
+        price_delta_perc: Allowed difference multiplier for TOP segment
+
+    Returns:
+        'OK' or 'HIGH'
+    """
+    if price is None or catalog_price_eur is None:
+        return 'NA'
+
+    # For TOP segment apply price_delta_perc
+    if segments_names and 'TOP' in str(segments_names).upper():
+        threshold = catalog_price_eur * price_delta_perc
+    else:
+        threshold = catalog_price_eur
+
+    return 'OK' if price <= threshold else 'HIGH'
