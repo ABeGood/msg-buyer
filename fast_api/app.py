@@ -342,7 +342,7 @@ async def conversations_page(request: Request):
 @app.get("/auth/google")
 async def google_login(request: Request):
     """Начало OAuth flow с Google"""
-    redirect_uri = request.url_for('google_callback')
+    redirect_uri = f"{BASE_URL}/auth/google/callback"
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 
