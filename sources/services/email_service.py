@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import re
 import os
 from pathlib import Path
+import requests
 
 from sources.classes.product import Product
 from sources.database.models import EmailLogModel, ConversationModel, MessageModel
@@ -61,6 +62,12 @@ class EmailService:
         # IMAP конфигурация для получения ответов
         self.imap_host = os.getenv('IMAP_HOST', 'imap.gmail.com')
         self.imap_port = int(os.getenv('IMAP_PORT', '993'))
+
+        # Mailgun конфигурация (для Railway и других хостингов без SMTP)
+        self.mailgun_api_key = os.getenv('MAILGUN_API_KEY')
+        self.mailgun_domain = os.getenv('MAILGUN_DOMAIN')
+        self.mailgun_base_url = os.getenv('MAILGUN_BASE_URL', 'https://api.mailgun.net')
+        self.use_mailgun = os.getenv('USE_MAILGUN', 'false').lower() == 'true'
 
         # Debug mode - send all emails to ADMIN_EMAIL
         self.debug_mode = os.getenv('DEBUG', 'false').lower() == 'true'
@@ -876,40 +883,53 @@ class EmailService:
                 subject = f"[DEBUG to: {to_email}] {subject}"
                 logger.info(f"DEBUG MODE: Redirecting email from {to_email} to {self.admin_email}")
 
-            # Создаем сообщение
-            msg = MIMEMultipart('alternative')
-            msg['From'] = f"{self.sender_name} <{self.sender_email}>"
-            msg['To'] = actual_recipient
-            msg['Subject'] = subject
-            msg['Reply-To'] = self.sender_email
+            # Use Mailgun if configured
+            if self.use_mailgun:
+                return self._send_email_mailgun(
+                    to_email=actual_recipient,
+                    subject=subject,
+                    body=body,
+                    html=html,
+                    message_id=message_id,
+                    in_reply_to=self.sender_email,
+                    references=references,
+                    original_recipient=to_email if self.debug_mode else None
+                )
 
-            # Добавляем заголовки для threading
-            if message_id:
-                msg['Message-ID'] = message_id
-            if in_reply_to:
-                msg['In-Reply-To'] = in_reply_to
-            if references:
-                msg['References'] = references
+            # # Создаем сообщение для SMTP
+            # msg = MIMEMultipart('alternative')
+            # msg['From'] = f"{self.sender_name} <{self.sender_email}>"
+            # msg['To'] = actual_recipient
+            # msg['Subject'] = subject
+            # msg['Reply-To'] = self.sender_email
 
-            # Добавляем тело письма
-            if html:
-                msg.attach(MIMEText(body, 'html', 'utf-8'))
-            else:
-                msg.attach(MIMEText(body, 'plain', 'utf-8'))
+            # # Добавляем заголовки для threading
+            # if message_id:
+            #     msg['Message-ID'] = message_id
+            # if in_reply_to:
+            #     msg['In-Reply-To'] = in_reply_to
+            # if references:
+            #     msg['References'] = references
 
-            # Подключаемся к SMTP серверу
-            logger.info(f"Подключение к SMTP {self.smtp_host}:{self.smtp_port}")
-            if self.smtp_port == 465:
-                # SSL connection (port 465)
-                with smtplib.SMTP_SSL(self.smtp_host, self.smtp_port) as server:
-                    server.login(self.smtp_user, self.smtp_password)
-                    server.send_message(msg)
-            else:
-                # STARTTLS connection (port 587)
-                with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-                    server.starttls()
-                    server.login(self.smtp_user, self.smtp_password)
-                    server.send_message(msg)
+            # # Добавляем тело письма
+            # if html:
+            #     msg.attach(MIMEText(body, 'html', 'utf-8'))
+            # else:
+            #     msg.attach(MIMEText(body, 'plain', 'utf-8'))
+
+            # # Подключаемся к SMTP серверу
+            # logger.info(f"Подключение к SMTP {self.smtp_host}:{self.smtp_port}")
+            # if self.smtp_port == 465:
+            #     # SSL connection (port 465)
+            #     with smtplib.SMTP_SSL(self.smtp_host, self.smtp_port) as server:
+            #         server.login(self.smtp_user, self.smtp_password)
+            #         server.send_message(msg)
+            # else:
+            #     # STARTTLS connection (port 587)
+            #     with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+            #         server.starttls()
+            #         server.login(self.smtp_user, self.smtp_password)
+            #         server.send_message(msg)
 
             logger.info(f"Email отправлен на {actual_recipient}" + (f" (original: {to_email})" if self.debug_mode else ""))
             return True
@@ -919,6 +939,86 @@ class EmailService:
             return False
         except Exception as e:
             logger.error(f"Ошибка при отправке email на {to_email}: {e}", exc_info=True)
+            return False
+
+    def _send_email_mailgun(
+        self,
+        to_email: str,
+        subject: str,
+        body: str,
+        html: bool = False,
+        message_id: Optional[str] = None,
+        in_reply_to: Optional[str] = None,
+        references: Optional[str] = None,
+        original_recipient: Optional[str] = None
+    ) -> bool:
+        """
+        Отправка email через Mailgun API
+
+        Args:
+            to_email: Email получателя
+            subject: Тема письма
+            body: Тело письма
+            html: Использовать HTML формат
+            message_id: Message-ID header
+            in_reply_to: In-Reply-To header
+            references: References header
+            original_recipient: Оригинальный получатель (для debug mode логирования)
+
+        Returns:
+            True если отправлено успешно
+        """
+        if not self.mailgun_api_key or not self.mailgun_domain:
+            logger.error("Mailgun не настроен: отсутствует API_KEY или DOMAIN")
+            return False
+
+        try:
+            url = f"{self.mailgun_base_url}/v3/{self.mailgun_domain}/messages"
+
+            # Формируем данные запроса
+            data = {
+                "from": f"{self.sender_name} <{self.sender_email}>",
+                "to": to_email,
+                "subject": subject,
+                "h:Reply-To": self.sender_email,
+            }
+
+            # Тело письма
+            if html:
+                data["html"] = body
+            else:
+                data["text"] = body
+
+            # Заголовки для threading
+            if message_id:
+                data["h:Message-ID"] = message_id
+            if in_reply_to:
+                data["h:In-Reply-To"] = in_reply_to
+            if references:
+                data["h:References"] = references
+
+            logger.info(f"Отправка email через Mailgun на {to_email}")
+
+            response = requests.post(
+                url,
+                auth=("api", self.mailgun_api_key),
+                data=data,
+                timeout=30
+            )
+
+            if response.status_code == 200:
+                logger.info(f"Email отправлен через Mailgun на {to_email}" +
+                           (f" (original: {original_recipient})" if original_recipient else ""))
+                return True
+            else:
+                logger.error(f"Mailgun ошибка {response.status_code}: {response.text}")
+                return False
+
+        except requests.RequestException as e:
+            logger.error(f"Ошибка при отправке через Mailgun на {to_email}: {e}", exc_info=True)
+            return False
+        except Exception as e:
+            logger.error(f"Неожиданная ошибка Mailgun: {e}", exc_info=True)
             return False
 
     def check_and_save_responses(self, mark_as_read: bool = False) -> List[Dict[str, Any]]:

@@ -39,32 +39,32 @@ TEMPLATE_RU = FirstContactTemplate(
 # =============================================================================
 # UKRAINIAN (#:@0W=AL:0)
 # =============================================================================
-# TEMPLATE_UK = FirstContactTemplate(
-#     language="uk",
-#     subject="0?8B =0 A?V2?@0FN  70:C?V2;O @C;L>28E @59>: (Master Service)",
-#     body="""VB0N!
+TEMPLATE_UA = FirstContactTemplate(
+    language="uk",
+    subject="0?8B =0 A?V2?@0FN  70:C?V2;O @C;L>28E @59>: (Master Service)",
+    body="""VB0N!
 
-# 5=5 720B8 0A8;L, O ?@54AB02;ON :><?0=VN Master Service (#:@0W=0). 8 A?5FV0;V7CT<>AO =0 ?@>406C B0 2V4=>2;5==V @C;L>28E @59>: V =0A>AV2 .
+5=5 720B8 0A8;L, O ?@54AB02;ON :><?0=VN Master Service (#:@0W=0). 8 A?5FV0;V7CT<>AO =0 ?@>406C B0 2V4=>2;5==V @C;L>28E @59>: V =0A>AV2 .
 
-# 0@07V HC:0T<> =>28E ?0@B=5@V2 C >;LIV 4;O @53C;O@=8E 70:C?V25;L 1/2 @C;L>28E @59>: (>@83V=0;, 157 ?>H:>465=L :>@?CAC B0 :@V?;5=L).
+0@07V HC:0T<> =>28E ?0@B=5@V2 C >;LIV 4;O @53C;O@=8E 70:C?V25;L 1/2 @C;L>28E @59>: (>@83V=0;, 157 ?>H:>465=L :>@?CAC B0 :@V?;5=L).
 
-# ;0=>20=V >1AO38 70:C?V25;L  2V4 500 4> 1000 HBC: 70 ?0@BVN, 7 <>6;82VABN ?>ABV9=>W A?V2?@0FV ?@8 CA?VH=><C ?5@H><C 70<>2;5==V.
+;0=>20=V >1AO38 70:C?V25;L  2V4 500 4> 1000 HBC: 70 ?0@BVN, 7 <>6;82VABN ?>ABV9=>W A?V2?@0FV ?@8 CA?VH=><C ?5@H><C 70<>2;5==V.
 
-# {parts_list}
+{parts_list}
 
-# C45<> 24OG=V, O:I> 28 7<>65B5 ?>2V4><8B8:
-# " 0O2=VABL 0A>@B8<5=BC =0 AB>FV
-# " '0AB>B0 ?>?>2=N20=>ABV AB>:C
+C45<> 24OG=V, O:I> 28 7<>65B5 ?>2V4><8B8:
+" 0O2=VABL 0A>@B8<5=BC =0 AB>FV
+" '0AB>B0 ?>?>2=N20=>ABV AB>:C
 
-# "0:>6 1C45<> @04V, O:I> 7<>65B5 =04VA;0B8 D>B> B8?>28E ?0@BV9 01> :>@>B:89 >?8A 0A>@B8<5=BC.
+"0:>6 1C45<> @04V, O:I> 7<>65B5 =04VA;0B8 D>B> B8?>28E ?0@BV9 01> :>@>B:89 >?8A 0A>@B8<5=BC.
 
-# 8 2V4:@8BV 4> 4V0;>3C B0 3>B>2V >13>2>@8B8 45B0;V B5AB>2>W 70:C?V2;V.
+8 2V4:@8BV 4> 4V0;>3C B0 3>B>2V >13>2>@8B8 45B0;V B5AB>2>W 70:C?V2;V.
 
-#  ?>203>N,
-# 0A8;L
-# Master Service (#:@0W=0)
-# """
-# )
+ ?>203>N,
+0A8;L
+Master Service (#:@0W=0)
+"""
+)
 
 
 # =============================================================================
@@ -134,7 +134,7 @@ Master Service (Ukraine)
 # =============================================================================
 TEMPLATES = {
     "ru": TEMPLATE_RU,
-    # "uk": TEMPLATE_UK,
+    "ua": TEMPLATE_UA,
     "en": TEMPLATE_EN,
     # "de": TEMPLATE_DE,
 }
@@ -189,8 +189,8 @@ def format_parts_list(products: List[Product], language: str = "en") -> str:
             if car_info:
                 parts.append(" ".join(car_info))
 
-        if product.price:
-            parts.append(f"�{product.price:.2f}")
+        if product.url:
+            parts.append(f"{product.url}")
 
         line = " | ".join(parts) if parts else f"Part ID: {product.part_id}"
         lines.append(f" {line}")
