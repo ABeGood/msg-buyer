@@ -12,7 +12,7 @@ from sources.utils.logger import get_logger
 logger = get_logger("compare_utils")
 
 # Path to CSV files (relative to project root)
-CSV_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+CSV_DIR = 'data/stocklists/'
 
 
 def compare_products_with_catalog(
@@ -79,39 +79,35 @@ def compare_products_with_catalog(
         )
 
         if match_result['found']:
-            # Add product data and match info
-            found_item = {
-                'part_id': product.part_id,
-                'code': product.code,
-                'price': product.price,
-                'url': product.url,
-                'source_site': product.source_site,
-                'category': product.category,
-                'oem_code': oem_code,
-                'other_codes': ' | '.join(other_codes) if other_codes else '',
-                'manufacturer_code': manufacturer_code,
-                'matched_by': match_result['matched_by'],
-                'matched_value': match_result['matched_value'],
-                'catalog_price_eur': match_result['price_eur'],
-                'catalog_segments': match_result['segments_names'],
-                'catalog_car_model': match_result['car_model'],
-                'match_count': match_result['match_count']
-            }
-            found_items.append(found_item)
+            # Left join: for each matched catalog row, add the product data
+            matched_rows = match_result['matched_rows'].copy()
+            matched_rows['db_part_id'] = product.part_id
+            matched_rows['db_code'] = product.code
+            matched_rows['db_price'] = product.price
+            matched_rows['db_url'] = product.url
+            matched_rows['db_source_site'] = product.source_site
+            matched_rows['db_category'] = product.category
+            matched_rows['db_oem_code'] = oem_code
+            matched_rows['db_other_codes'] = ' | '.join(other_codes) if other_codes else ''
+            matched_rows['db_manufacturer_code'] = manufacturer_code
+            matched_rows['matched_by'] = match_result['matched_by']
+            matched_rows['matched_value'] = match_result['matched_value']
+
+            found_items.append(matched_rows)
 
     if not found_items:
         logger.info("No matches found with catalog")
         return pd.DataFrame()
 
-    # Create DataFrame from found products
-    result_df = pd.DataFrame(found_items)
+    # Concatenate all matched rows into single DataFrame
+    result_df = pd.concat(found_items, ignore_index=True)
 
     # Price classification
     result_df['price_classification'] = result_df.apply(
         lambda row: _classify_price(
-            price=row['price'],
-            catalog_price_eur=row['catalog_price_eur'],
-            segments_names=row['catalog_segments'],
+            price=row['db_price'],
+            catalog_price_eur=row.get('price_eur'),
+            segments_names=row.get('segments_names'),
             price_delta_perc=price_delta_perc
         ),
         axis=1
@@ -141,15 +137,13 @@ def _find_in_catalog(
         product: Product object for logging
 
     Returns:
-        Dictionary with search results
+        Dictionary with search results including matched_rows DataFrame
     """
     result = {
         'found': False,
         'matched_by': None,
         'matched_value': None,
-        'price_eur': None,
-        'segments_names': None,
-        'car_model': None,
+        'matched_rows': pd.DataFrame(),
         'match_count': 0
     }
 
@@ -193,14 +187,10 @@ def _find_in_catalog(
                     break
 
     if not matched_rows.empty:
-        # Take first found row to get data
-        first_match = matched_rows.iloc[0]
         result['found'] = True
         result['matched_by'] = matched_by
         result['matched_value'] = matched_value
-        result['price_eur'] = first_match.get('price_eur', 0)
-        result['segments_names'] = first_match.get('segments_names', '')
-        result['car_model'] = first_match.get('car_model', '')
+        result['matched_rows'] = matched_rows.copy()
         result['match_count'] = len(matched_rows)
 
         logger.info(

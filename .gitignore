@@ -51,6 +51,7 @@ htmlcov/
 .tox/
 .hypothesis/
 test_output/
+data/
 
 # Jupyter Notebook
 .ipynb_checkpoints

@@ -122,7 +122,7 @@ class SeleniumBaseScraper(BaseScraper):
             if self.sb.is_element_visible('input[value*="Verify"]'):
                 print(f"[CF] Кнопка Verify найдена ({time.time() - start:.2f}s), кликаем...")
                 self.sb.uc_click('input[value*="Verify"]')
-                time.sleep(1)
+                time.sleep(0.4)
                 print(f"[CF] Verify пройден, всего: {time.time() - start_total:.2f}s")
                 return True
             print(f"[CF] Шаг 1 - Verify check: {time.time() - start:.2f}s")
@@ -133,7 +133,7 @@ class SeleniumBaseScraper(BaseScraper):
                 print(f"[CF] Cloudflare iframe найден ({time.time() - start:.2f}s), решаем...")
                 try:
                     self.sb.uc_gui_click_captcha()
-                    time.sleep(1)
+                    time.sleep(0.4)
                     print(f"[CF] CAPTCHA пройдена, всего: {time.time() - start_total:.2f}s")
                     return True
                 except Exception as e:
@@ -153,12 +153,12 @@ class SeleniumBaseScraper(BaseScraper):
 
                 for selector in iframe_selectors:
                     try:
-                        WebDriverWait(self.driver, 1.5).until(
+                        WebDriverWait(self.driver, 0.5).until(
                             EC.frame_to_be_available_and_switch_to_it((By.CSS_SELECTOR, selector))
                         )
                         print(f"[CF] iframe найден: {selector}")
 
-                        checkbox = WebDriverWait(self.driver, 1.5).until(
+                        checkbox = WebDriverWait(self.driver, 0.5).until(
                             EC.element_to_be_clickable((By.CSS_SELECTOR, "label.ctp-checkbox-label, input[type='checkbox']"))
                         )
                         checkbox.click()
@@ -236,7 +236,7 @@ class SeleniumBaseScraper(BaseScraper):
         Задержка, имитирующая время на чтение страницы
         """
         delay = random.gauss(2, 1)
-        delay = max(0.5, min(delay, 4))
+        delay = max(0.5, min(delay, 3))
         time.sleep(delay)
 
     def wait_for_page_load(self, timeout: int = 15) -> bool:

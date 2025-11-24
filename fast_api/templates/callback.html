@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MSG Buyer - Authentication</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+        }
+
+        .icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 24px;
+        }
+
+        p {
+            color: #666;
+            margin-bottom: 25px;
+            line-height: 1.6;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 14px 32px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.2s ease;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5a6fd6;
+            transform: translateY(-2px);
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .success { color: #28a745; }
+        .pending { color: #ffc107; }
+        .error { color: #dc3545; }
+    </style>
+</head>
+<body>
+    <div class="container" id="content">
+        <div class="spinner"></div>
+        <h1>Processing...</h1>
+        <p>Please wait while we complete your authentication.</p>
+    </div>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get('token');
+        const isNew = params.get('is_new') === 'True';
+        const isApproved = params.get('is_approved') === 'True';
+        const error = params.get('error');
+
+        const container = document.getElementById('content');
+
+        if (error) {
+            container.innerHTML = `
+                <div class="icon">❌</div>
+                <h1 class="error">Authentication Failed</h1>
+                <p>${decodeURIComponent(error)}</p>
+                <a href="/login" class="btn btn-primary">Try Again</a>
+            `;
+        } else if (token) {
+            // Store token
+            localStorage.setItem('auth_token', token);
+
+            if (isApproved) {
+                container.innerHTML = `
+                    <div class="icon">✅</div>
+                    <h1 class="success">Welcome!</h1>
+                    <p>You have been successfully authenticated.</p>
+                    <a href="/dashboard" class="btn btn-primary">Go to Dashboard</a>
+                `;
+            } else if (isNew) {
+                container.innerHTML = `
+                    <div class="icon">⏳</div>
+                    <h1 class="pending">Request Sent!</h1>
+                    <p>Your access request has been sent to the administrator. You will receive access once approved.</p>
+                    <a href="/login?pending=true" class="btn btn-primary">Back to Login</a>
+                `;
+            } else {
+                container.innerHTML = `
+                    <div class="icon">⏳</div>
+                    <h1 class="pending">Pending Approval</h1>
+                    <p>Your account is still waiting for administrator approval. Please check back later.</p>
+                    <a href="/login?pending=true" class="btn btn-primary">Back to Login</a>
+                `;
+            }
+        } else {
+            container.innerHTML = `
+                <div class="icon">❓</div>
+                <h1>Something went wrong</h1>
+                <p>No authentication data received. Please try again.</p>
+                <a href="/login" class="btn btn-primary">Back to Login</a>
+            `;
+        }
+    </script>
+</body>
+</html>

@@ -7,7 +7,7 @@ from typing import Optional, Dict, Any
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import SQLAlchemyError
-from sources.database.models import ProductModel, SellerModel, Base
+from sources.database.models import ProductModel, SellerModel, UserModel, Base
 from sources.classes.product import Product
 from sources.utils.logger import get_logger
 
@@ -37,7 +37,32 @@ class ProductRepository:
         """
         Base.metadata.create_all(bind=self.engine)
         logger.info("Таблицы созданы/проверены")
-    
+
+    def drop_table(self, table_name: str) -> bool:
+        """
+        Удаление таблицы по имени
+
+        Args:
+            table_name: Имя таблицы для удаления
+
+        Returns:
+            True если таблица удалена, False в противном случае
+        """
+        from sqlalchemy import text
+
+        session: Session = self.SessionLocal()
+        try:
+            session.execute(text(f'DROP TABLE IF EXISTS "{table_name}" CASCADE'))
+            session.commit()
+            logger.info(f"Таблица {table_name} удалена")
+            return True
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Ошибка при удалении таблицы {table_name}: {e}", exc_info=True)
+            return False
+        finally:
+            session.close()
+
     def save(self, product: Product) -> bool:
         """
         Сохранение товара в БД
@@ -217,7 +242,7 @@ class ProductRepository:
         finally:
             session.close()
     
-    def get_all(self, limit: Optional[int] = None) -> List[Product]:
+    def get_all(self, limit: Optional[int] = None) -> list[Product]:
         """
         Получение всех товаров из БД
 
@@ -582,7 +607,7 @@ class ProductRepository:
             session.commit()
             logger.info(f"Товар {product.part_id} и продавец сохранены в БД (транзакция)")
             return True
-            
+
         except SQLAlchemyError as e:
             session.rollback()
             logger.error(f"Ошибка при сохранении товара и продавца: {e}", exc_info=True)
@@ -590,3 +615,161 @@ class ProductRepository:
         finally:
             session.close()
 
+
+class UserRepository:
+    """
+    Репозиторий для работы с пользователями (авторизация через Google OAuth)
+    """
+
+    def __init__(self, database_url: str):
+        self.engine = create_engine(database_url, echo=False)
+        self.SessionLocal = sessionmaker(bind=self.engine, autocommit=False, autoflush=False)
+
+    def create_tables(self):
+        """Создание таблиц в БД"""
+        Base.metadata.create_all(bind=self.engine)
+
+    def get_session(self) -> Session:
+        """Получение сессии для использования в FastAPI Depends"""
+        return self.SessionLocal()
+
+    def find_by_email(self, email: str) -> Optional[UserModel]:
+        """Поиск пользователя по email"""
+        session = self.SessionLocal()
+        try:
+            return session.query(UserModel).filter_by(email=email).first()
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при поиске пользователя {email}: {e}")
+            return None
+        finally:
+            session.close()
+
+    def find_by_google_id(self, google_id: str) -> Optional[UserModel]:
+        """Поиск пользователя по Google ID"""
+        session = self.SessionLocal()
+        try:
+            return session.query(UserModel).filter_by(google_id=google_id).first()
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при поиске пользователя по google_id {google_id}: {e}")
+            return None
+        finally:
+            session.close()
+
+    def create_user(
+        self,
+        email: str,
+        google_id: str,
+        name: Optional[str] = None,
+        picture: Optional[str] = None,
+        is_approved: bool = False
+    ) -> Optional[UserModel]:
+        """Создание нового пользователя"""
+        from datetime import datetime, timezone
+
+        session = self.SessionLocal()
+        try:
+            user = UserModel(
+                email=email,
+                google_id=google_id,
+                name=name,
+                picture=picture,
+                is_approved=is_approved,
+                approved_at=datetime.now(timezone.utc) if is_approved else None
+            )
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+            logger.info(f"Создан пользователь {email}")
+            return user
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Ошибка при создании пользователя {email}: {e}")
+            return None
+        finally:
+            session.close()
+
+    def update_user(
+        self,
+        email: str,
+        name: Optional[str] = None,
+        picture: Optional[str] = None
+    ) -> Optional[UserModel]:
+        """Обновление данных пользователя"""
+        session = self.SessionLocal()
+        try:
+            user = session.query(UserModel).filter_by(email=email).first()
+            if user:
+                if name is not None:
+                    user.name = name
+                if picture is not None:
+                    user.picture = picture
+                session.commit()
+                session.refresh(user)
+            return user
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Ошибка при обновлении пользователя {email}: {e}")
+            return None
+        finally:
+            session.close()
+
+    def approve_user(self, email: str) -> Optional[UserModel]:
+        """Одобрение пользователя"""
+        from datetime import datetime, timezone
+
+        session = self.SessionLocal()
+        try:
+            user = session.query(UserModel).filter_by(email=email).first()
+            if user:
+                user.is_approved = True
+                user.approved_at = datetime.now(timezone.utc)
+                session.commit()
+                session.refresh(user)
+                logger.info(f"Пользователь {email} одобрен")
+            return user
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Ошибка при одобрении пользователя {email}: {e}")
+            return None
+        finally:
+            session.close()
+
+    def reject_user(self, email: str) -> Optional[UserModel]:
+        """Отклонение/деактивация пользователя"""
+        session = self.SessionLocal()
+        try:
+            user = session.query(UserModel).filter_by(email=email).first()
+            if user:
+                user.is_active = False
+                session.commit()
+                session.refresh(user)
+                logger.info(f"Пользователь {email} деактивирован")
+            return user
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Ошибка при деактивации пользователя {email}: {e}")
+            return None
+        finally:
+            session.close()
+
+    def get_all_users(self) -> list[UserModel]:
+        """Получение всех пользователей"""
+        session = self.SessionLocal()
+        try:
+            return session.query(UserModel).all()
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при получении пользователей: {e}")
+            return []
+        finally:
+            session.close()
+
+    def get_pending_users(self) -> list[UserModel]:
+        """Получение пользователей, ожидающих одобрения"""
+        session = self.SessionLocal()
+        try:
+            return session.query(UserModel).filter_by(is_approved=False, is_active=True).all()
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при получении pending пользователей: {e}")
+            return []
+        finally:
+            session.close()

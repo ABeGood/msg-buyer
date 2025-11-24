@@ -77,6 +77,51 @@ class ProductModel(Base):
         return f"ProductModel(part_id={self.part_id}, code={self.code}, price={self.price})"
 
 
+class UserModel(Base):
+    """
+    SQLAlchemy модель для таблицы users
+
+    Пользователи, авторизованные через Google OAuth.
+    Требуют одобрения админа для получения доступа.
+    """
+    __tablename__ = 'users'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String(255), unique=True, nullable=False)
+    name = Column(String(255), nullable=True)
+    picture = Column(Text, nullable=True)  # URL аватарки Google
+    google_id = Column(String(255), unique=True, nullable=False)
+
+    # Статус одобрения
+    is_approved = Column(Boolean, default=False, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    # Метаданные
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    approved_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index('idx_users_email', 'email'),
+        Index('idx_users_google_id', 'google_id'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'email': self.email,
+            'name': self.name,
+            'picture': self.picture,
+            'is_approved': self.is_approved,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'approved_at': self.approved_at.isoformat() if self.approved_at else None,
+        }
+
+    def __repr__(self) -> str:
+        return f"UserModel(email={self.email}, is_approved={self.is_approved})"
+
+
 class SellerModel(Base):
     """
     SQLAlchemy модель для таблицы sellers
