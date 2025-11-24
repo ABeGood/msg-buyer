@@ -258,11 +258,18 @@ class EmailService:
             
             # Подключаемся к SMTP серверу
             logger.info(f"Подключение к SMTP {self.smtp_host}:{self.smtp_port}")
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.smtp_user, self.smtp_password)
-                server.send_message(msg)
-            
+            if self.smtp_port == 465:
+                # SSL connection (port 465)
+                with smtplib.SMTP_SSL(self.smtp_host, self.smtp_port) as server:
+                    server.login(self.smtp_user, self.smtp_password)
+                    server.send_message(msg)
+            else:
+                # STARTTLS connection (port 587)
+                with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+                    server.starttls()
+                    server.login(self.smtp_user, self.smtp_password)
+                    server.send_message(msg)
+
             logger.info(f"Email отправлен на {to_email}")
             return True
             
@@ -892,10 +899,17 @@ class EmailService:
 
             # Подключаемся к SMTP серверу
             logger.info(f"Подключение к SMTP {self.smtp_host}:{self.smtp_port}")
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.smtp_user, self.smtp_password)
-                server.send_message(msg)
+            if self.smtp_port == 465:
+                # SSL connection (port 465)
+                with smtplib.SMTP_SSL(self.smtp_host, self.smtp_port) as server:
+                    server.login(self.smtp_user, self.smtp_password)
+                    server.send_message(msg)
+            else:
+                # STARTTLS connection (port 587)
+                with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+                    server.starttls()
+                    server.login(self.smtp_user, self.smtp_password)
+                    server.send_message(msg)
 
             logger.info(f"Email отправлен на {actual_recipient}" + (f" (original: {to_email})" if self.debug_mode else ""))
             return True
