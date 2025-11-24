@@ -412,6 +412,7 @@ class MessageModel(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     sent_at = Column(DateTime, nullable=True)
     received_at = Column(DateTime, nullable=True)  # Для inbound сообщений
+    is_read = Column(Boolean, default=False, nullable=False)  # Прочитано ли сообщение (для inbound)
 
     __table_args__ = (
         Index('idx_messages_conversation_id', 'conversation_id'),
@@ -419,6 +420,7 @@ class MessageModel(Base):
         Index('idx_messages_status', 'status'),
         Index('idx_messages_created_at', 'created_at'),
         Index('idx_messages_message_id', 'message_id'),
+        Index('idx_messages_is_read', 'is_read'),
     )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -436,8 +438,72 @@ class MessageModel(Base):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'sent_at': self.sent_at.isoformat() if self.sent_at else None,
             'received_at': self.received_at.isoformat() if self.received_at else None,
+            'is_read': self.is_read,
         }
 
     def __repr__(self) -> str:
         return f"MessageModel(id={self.id}, conversation_id={self.conversation_id}, direction={self.direction})"
+
+
+class ConversationClassificationModel(Base):
+    """
+    SQLAlchemy модель для таблицы conversation_classifications
+
+    Хранит результаты LLM-классификации переписок с продавцами.
+    Обновляется при каждом новом входящем сообщении.
+    """
+    __tablename__ = 'conversation_classifications'
+
+    # conversation_id как PRIMARY KEY (одна классификация на переписку)
+    conversation_id = Column(Integer, ForeignKey('conversations.id', ondelete='CASCADE'), primary_key=True)
+
+    # Статус классификации
+    status = Column(String(50), nullable=False)  # accepted, accepted_partially, declined, communication_needed
+
+    # Причина отказа (если status = declined)
+    decline_reason = Column(String(50), nullable=True)  # no_stock, no_export, minimum_order, etc.
+    decline_details = Column(Text, nullable=True)
+
+    # Оценка уверенности и настроения
+    confidence = Column(Integer, nullable=False)  # 1-5
+    seller_sentiment = Column(String(20), nullable=False)  # positive, neutral, negative
+
+    # Информация о ценах
+    has_price_info = Column(Boolean, default=False, nullable=False)
+    prices_mentioned = Column(JSONB, nullable=True)  # [{item, price, currency}, ...]
+
+    # Дополнительная информация
+    availability_info = Column(Text, nullable=True)
+    next_steps = Column(Text, nullable=True)
+    summary = Column(Text, nullable=True)
+
+    # Метаданные
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    __table_args__ = (
+        Index('idx_conv_class_status', 'status'),
+        Index('idx_conv_class_decline_reason', 'decline_reason'),
+        Index('idx_conv_class_updated_at', 'updated_at'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'conversation_id': self.conversation_id,
+            'status': self.status,
+            'decline_reason': self.decline_reason,
+            'decline_details': self.decline_details,
+            'confidence': self.confidence,
+            'seller_sentiment': self.seller_sentiment,
+            'has_price_info': self.has_price_info,
+            'prices_mentioned': self.prices_mentioned or [],
+            'availability_info': self.availability_info,
+            'next_steps': self.next_steps,
+            'summary': self.summary,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self) -> str:
+        return f"ConversationClassificationModel(conversation_id={self.conversation_id}, status={self.status})"
 

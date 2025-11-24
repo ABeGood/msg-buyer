@@ -1013,14 +1013,21 @@ class EmailService:
                         )
 
                         if message:
+                            # Classify response with LLM (pass conversation_id to load full history)
+                            classification = self._classify_response_with_llm(conversation.id, body)
+
+                            # Save classification to database
+                            conv_repo.save_classification(conversation.id, classification)
+
                             saved_responses.append({
                                 'conversation_id': conversation.id,
                                 'message_id': message.id,
                                 'from_email': from_email,
                                 'subject': subject,
-                                'body': body[:200] + '...' if len(body) > 200 else body
+                                'body': body[:200] + '...' if len(body) > 200 else body,
+                                'classification': classification
                             })
-                            logger.info(f"Сохранен ответ в переписку {conversation.id} от {from_email}")
+                            logger.info(f"Сохранен ответ в переписку {conversation.id} от {from_email}, classification: {classification.get('status', 'unknown')}")
                     else:
                         # Переписка не найдена - логируем
                         logger.info(f"Не найдена переписка для письма от {from_email}: {subject}")
@@ -1106,3 +1113,75 @@ class EmailService:
             # Удаляем переписку если не удалось отправить
             conv_repo.delete_conversation(conversation.id)
             return {'success': False, 'error': result.get('error', 'Failed to send message')}
+
+    def _classify_response_with_llm(self, conversation_id: int, body: str) -> Dict[str, Any]:
+        """
+        Classify seller response using LLM with full conversation history.
+
+        Args:
+            conversation_id: ID of the conversation to load messages from
+            body: Latest email body text (fallback for basic classification)
+
+        Returns:
+            Classification result dict
+        """
+        try:
+            from sources.llm_utils.mail_response_analyzer import analyze_seller_response
+
+            # Load all messages from conversation
+            conv_repo = ConversationRepository(self.database_url)
+            conv_data = conv_repo.get_conversation_with_messages(conversation_id)
+
+            if not conv_data:
+                logger.warning(f"Conversation {conversation_id} not found, using basic classification")
+                return self._basic_response_classification(body)
+
+            messages = conv_data.get('messages', [])
+            conversation = conv_data.get('conversation', {})
+
+            # Format positions info from conversation
+            position_ids = conversation.get('position_ids', [])
+            positions_info = f"Position IDs: {', '.join(position_ids)}" if position_ids else None
+
+            # Call LLM analyzer with full conversation
+            result = analyze_seller_response(messages)
+
+            # Convert Pydantic model to dict
+            return result.model_dump()
+
+        except ImportError:
+            logger.warning("LLM analyzer not available, using basic classification")
+            return self._basic_response_classification(body)
+        except Exception as e:
+            logger.error(f"LLM classification error: {e}")
+            return self._basic_response_classification(body)
+
+    def _basic_response_classification(self, body: str) -> Dict[str, Any]:
+        """Fallback basic classification without LLM"""
+        body_lower = body.lower()
+
+        # Basic keyword detection
+        positive_keywords = ['yes', 'available', 'in stock', 'can offer', 'interested', 'price', 'tak', 'mamy', 'dostępne']
+        negative_keywords = ['no', 'sorry', 'unavailable', 'out of stock', 'nie', 'niestety', 'brak']
+
+        is_positive = any(kw in body_lower for kw in positive_keywords)
+        is_negative = any(kw in body_lower for kw in negative_keywords)
+
+        if is_positive and not is_negative:
+            sentiment = 'positive'
+            intent = 'interested'
+        elif is_negative and not is_positive:
+            sentiment = 'negative'
+            intent = 'not_interested'
+        else:
+            sentiment = 'neutral'
+            intent = 'need_more_info'
+
+        return {
+            'sentiment': sentiment,
+            'intent': intent,
+            'has_price': any(c.isdigit() for c in body) and ('€' in body or 'eur' in body_lower or 'pln' in body_lower),
+            'has_availability': any(kw in body_lower for kw in ['stock', 'available', 'mamy', 'dostępne']),
+            'summary': body[:100] + '...' if len(body) > 100 else body,
+            'method': 'basic'
+        }

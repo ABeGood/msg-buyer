@@ -67,12 +67,27 @@
             flex: 1;
             overflow-y: auto;
             padding: 24px;
+            min-width: 50%;
+        }
+
+        .resize-handle {
+            width: 6px;
+            background: #e0e0e0;
+            cursor: col-resize;
+            transition: background 0.2s;
+            flex-shrink: 0;
+        }
+
+        .resize-handle:hover,
+        .resize-handle.dragging {
+            background: #667eea;
         }
 
         .right-panel {
-            width: 450px;
+            width: 30%;
+            min-width: 20%;
+            max-width: 50%;
             background: white;
-            border-left: 1px solid #e0e0e0;
             display: flex;
             flex-direction: column;
         }
@@ -393,6 +408,7 @@
         <nav class="nav-links">
             <a href="/dashboard">Products</a>
             <a href="/dashboard-sellers">Sellers</a>
+            <a href="/conversations">Conversations</a>
         </nav>
         <a href="/dashboard-sellers" class="back-btn">← Back</a>
     </header>
@@ -458,8 +474,11 @@
             </div>
         </div>
 
+        <!-- Resize Handle -->
+        <div class="resize-handle" id="resize-handle"></div>
+
         <!-- Right Panel: Chat -->
-        <div class="right-panel">
+        <div class="right-panel" id="right-panel">
             <div class="chat-header">
                 <h3>Compose Email</h3>
                 <div class="lang-switcher">
@@ -750,6 +769,46 @@
         // Close modal on overlay click
         document.getElementById('send-modal').addEventListener('click', function(e) {
             if (e.target === this) closeModal();
+        });
+
+        // Resize handle functionality
+        const resizeHandle = document.getElementById('resize-handle');
+        const rightPanel = document.getElementById('right-panel');
+        const mainContainer = document.querySelector('.main-container');
+        let isResizing = false;
+
+        resizeHandle.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            resizeHandle.classList.add('dragging');
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+
+            const containerRect = mainContainer.getBoundingClientRect();
+            const containerWidth = containerRect.width;
+            const mouseX = e.clientX - containerRect.left;
+
+            // Calculate right panel width (from right edge)
+            let newWidth = containerWidth - mouseX;
+
+            // Constrain to 20%-50% of container width
+            const minWidth = containerWidth * 0.2;
+            const maxWidth = containerWidth * 0.5;
+            newWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+
+            rightPanel.style.width = newWidth + 'px';
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizing) {
+                isResizing = false;
+                resizeHandle.classList.remove('dragging');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+            }
         });
 
         loadSeller();

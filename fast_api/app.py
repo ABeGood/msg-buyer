@@ -331,6 +331,12 @@ async def seller_detail_page(request: Request, email: str):
     return templates.TemplateResponse("seller_detail.html", {"request": request, "seller_email": email})
 
 
+@app.get("/conversations", response_class=HTMLResponse)
+async def conversations_page(request: Request):
+    """Conversations page"""
+    return templates.TemplateResponse("conversations.html", {"request": request})
+
+
 # ================== AUTH ROUTES ==================
 
 @app.get("/auth/google")
@@ -645,17 +651,12 @@ async def create_conversation(
 @app.get("/api/conversations")
 async def list_conversations(
     seller_email: Optional[str] = None,
-    status: Optional[str] = None,
     user: UserModel = Depends(get_approved_user),
     repo: ConversationRepository = Depends(get_conv_repo)
 ):
-    """Получение списка переписок"""
-    if seller_email:
-        conversations = repo.get_conversations_with_last_message(seller_email)
-    else:
-        conversations = repo.get_all_conversations(status)
-        conversations = [c.to_dict() for c in conversations]
-
+    """Получение списка переписок с информацией о непрочитанных"""
+    # Always use the method that includes unread status
+    conversations = repo.get_conversations_with_last_message(seller_email)
     return conversations
 
 
@@ -665,10 +666,12 @@ async def get_conversation(
     user: UserModel = Depends(get_approved_user),
     repo: ConversationRepository = Depends(get_conv_repo)
 ):
-    """Получение переписки со всеми сообщениями"""
+    """Получение переписки со всеми сообщениями (автоматически помечает как прочитанные)"""
     result = repo.get_conversation_with_messages(conversation_id)
     if not result:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    # Mark inbound messages as read when conversation is opened
+    repo.mark_messages_as_read(conversation_id)
     return result
 
 

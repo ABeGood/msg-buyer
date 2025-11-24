@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import SQLAlchemyError
-from sources.database.models import ProductModel, SellerModel, UserModel, CompareResultModel, ConversationModel, MessageModel, Base
+from sources.database.models import ProductModel, SellerModel, UserModel, CompareResultModel, ConversationModel, MessageModel, ConversationClassificationModel, Base
 from sources.classes.product import Product
 from sources.utils.logger import get_logger
 
@@ -1237,14 +1237,17 @@ class ConversationRepository:
         finally:
             session.close()
 
-    def get_conversations_with_last_message(self, seller_email: str) -> List[Dict[str, Any]]:
-        """Получение списка переписок с последним сообщением (для списка чатов)"""
+    def get_conversations_with_last_message(self, seller_email: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Получение списка переписок с последним сообщением и статусом непрочитанных"""
         session = self.SessionLocal()
         try:
-            conversations = session.query(ConversationModel)\
-                .filter_by(seller_email=seller_email)\
-                .order_by(ConversationModel.last_message_at.desc().nullsfirst(), ConversationModel.created_at.desc())\
-                .all()
+            query = session.query(ConversationModel)
+            if seller_email:
+                query = query.filter_by(seller_email=seller_email)
+            conversations = query.order_by(
+                ConversationModel.last_message_at.desc().nullsfirst(),
+                ConversationModel.created_at.desc()
+            ).all()
 
             result = []
             for conv in conversations:
@@ -1253,14 +1256,127 @@ class ConversationRepository:
                     .order_by(MessageModel.created_at.desc())\
                     .first()
 
+                # Check for unread inbound messages
+                unread_count = session.query(MessageModel)\
+                    .filter_by(conversation_id=conv.id, direction='inbound', is_read=False)\
+                    .count()
+
+                # Get classification if exists
+                classification = session.query(ConversationClassificationModel)\
+                    .filter_by(conversation_id=conv.id)\
+                    .first()
+
                 conv_dict = conv.to_dict()
                 conv_dict['last_message'] = last_message.to_dict() if last_message else None
                 conv_dict['message_count'] = session.query(MessageModel).filter_by(conversation_id=conv.id).count()
+                conv_dict['unread_count'] = unread_count
+                conv_dict['has_unread'] = unread_count > 0
+                conv_dict['classification'] = classification.to_dict() if classification else None
                 result.append(conv_dict)
 
             return result
         except SQLAlchemyError as e:
-            logger.error(f"Ошибка при получении переписок с {seller_email}: {e}")
+            logger.error(f"Ошибка при получении переписок: {e}")
             return []
+        finally:
+            session.close()
+
+    def mark_messages_as_read(self, conversation_id: int) -> int:
+        """Отметить все inbound сообщения переписки как прочитанные"""
+        session = self.SessionLocal()
+        try:
+            count = session.query(MessageModel)\
+                .filter_by(conversation_id=conversation_id, direction='inbound', is_read=False)\
+                .update({'is_read': True})
+            session.commit()
+            return count
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Ошибка при отметке сообщений как прочитанных: {e}")
+            return 0
+        finally:
+            session.close()
+
+    # === Classification ===
+
+    def save_classification(self, conversation_id: int, classification: Dict[str, Any]) -> Optional[ConversationClassificationModel]:
+        """
+        Сохранение или обновление классификации переписки.
+        Использует upsert - создает новую запись или обновляет существующую.
+
+        Args:
+            conversation_id: ID переписки
+            classification: Словарь с результатами классификации
+
+        Returns:
+            ConversationClassificationModel или None при ошибке
+        """
+        session = self.SessionLocal()
+        try:
+            # Проверяем существующую классификацию
+            existing = session.query(ConversationClassificationModel)\
+                .filter_by(conversation_id=conversation_id)\
+                .first()
+
+            # Преобразуем prices_mentioned в JSON-совместимый формат
+            prices_mentioned = classification.get('prices_mentioned', [])
+            if prices_mentioned and hasattr(prices_mentioned[0], 'model_dump'):
+                prices_mentioned = [p.model_dump() for p in prices_mentioned]
+
+            if existing:
+                # Обновляем существующую
+                existing.status = classification.get('status')
+                existing.decline_reason = classification.get('decline_reason')
+                existing.decline_details = classification.get('decline_details')
+                existing.confidence = classification.get('confidence')
+                existing.seller_sentiment = classification.get('seller_sentiment')
+                existing.has_price_info = classification.get('has_price_info', False)
+                existing.prices_mentioned = prices_mentioned
+                existing.availability_info = classification.get('availability_info')
+                existing.next_steps = classification.get('next_steps')
+                existing.summary = classification.get('summary')
+                existing.updated_at = datetime.now(timezone.utc)
+                session.commit()
+                session.refresh(existing)
+                logger.info(f"Обновлена классификация для переписки {conversation_id}: {existing.status}")
+                return existing
+            else:
+                # Создаем новую
+                new_classification = ConversationClassificationModel(
+                    conversation_id=conversation_id,
+                    status=classification.get('status'),
+                    decline_reason=classification.get('decline_reason'),
+                    decline_details=classification.get('decline_details'),
+                    confidence=classification.get('confidence'),
+                    seller_sentiment=classification.get('seller_sentiment'),
+                    has_price_info=classification.get('has_price_info', False),
+                    prices_mentioned=prices_mentioned,
+                    availability_info=classification.get('availability_info'),
+                    next_steps=classification.get('next_steps'),
+                    summary=classification.get('summary'),
+                )
+                session.add(new_classification)
+                session.commit()
+                session.refresh(new_classification)
+                logger.info(f"Создана классификация для переписки {conversation_id}: {new_classification.status}")
+                return new_classification
+
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Ошибка при сохранении классификации для переписки {conversation_id}: {e}")
+            return None
+        finally:
+            session.close()
+
+    def get_classification(self, conversation_id: int) -> Optional[ConversationClassificationModel]:
+        """Получение классификации переписки по ID"""
+        session = self.SessionLocal()
+        try:
+            return session.query(ConversationClassificationModel)\
+                .filter_by(conversation_id=conversation_id)\
+                .first()
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при получении классификации {conversation_id}: {e}")
+            return None
         finally:
             session.close()
