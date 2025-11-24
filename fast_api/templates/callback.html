@@ -115,12 +115,8 @@
             localStorage.setItem('auth_token', token);
 
             if (isApproved) {
-                container.innerHTML = `
-                    <div class="icon">✅</div>
-                    <h1 class="success">Welcome!</h1>
-                    <p>You have been successfully authenticated.</p>
-                    <a href="/dashboard" class="btn btn-primary">Go to Dashboard</a>
-                `;
+                // Auto-redirect to dashboard
+                window.location.href = '/dashboard';
             } else if (isNew) {
                 container.innerHTML = `
                     <div class="icon">⏳</div>

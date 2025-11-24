@@ -27,7 +27,7 @@ env_path = Path(__file__).parent.parent / '.env'
 if env_path.exists():
     load_dotenv(env_path)
 
-from sources.database.repository import UserRepository
+from sources.database.repository import UserRepository, ProductRepository
 from sources.database.models import UserModel
 
 
@@ -57,12 +57,19 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 # ================== REPOSITORY ==================
 
 user_repo = UserRepository(DATABASE_URL) if DATABASE_URL else None
+product_repo = ProductRepository(DATABASE_URL) if DATABASE_URL else None
 
 
 def get_user_repo() -> UserRepository:
     if not user_repo:
         raise HTTPException(status_code=500, detail="Database not configured")
     return user_repo
+
+
+def get_product_repo() -> ProductRepository:
+    if not product_repo:
+        raise HTTPException(status_code=500, detail="Database not configured")
+    return product_repo
 
 
 # ================== LIFESPAN ==================
@@ -228,6 +235,12 @@ async def auth_callback_page(request: Request):
     return templates.TemplateResponse("callback.html", {"request": request})
 
 
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page(request: Request):
+    """Dashboard page"""
+    return templates.TemplateResponse("dashboard.html", {"request": request})
+
+
 # ================== AUTH ROUTES ==================
 
 @app.get("/auth/google")
@@ -347,3 +360,13 @@ async def reject_user(
 async def protected_route(user: UserModel = Depends(get_approved_user)):
     """Пример защищенного маршрута"""
     return {"message": f"Hello, {user.name}! You have access."}
+
+
+@app.get("/api/products")
+async def get_products(
+    user: UserModel = Depends(get_approved_user),
+    repo: ProductRepository = Depends(get_product_repo)
+):
+    """Получение всех продуктов"""
+    products = repo.get_all()
+    return [p.to_dict() for p in products]
