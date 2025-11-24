@@ -11,6 +11,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 from pathlib import Path
 from contextlib import asynccontextmanager
+import asyncio
 
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.responses import RedirectResponse, HTMLResponse
@@ -27,8 +28,11 @@ env_path = Path(__file__).parent.parent / '.env'
 if env_path.exists():
     load_dotenv(env_path)
 
-from sources.database.repository import UserRepository, ProductRepository
+from sources.database.repository import UserRepository, ProductRepository, ConversationRepository
 from sources.database.models import UserModel
+from sources.services.email_service import EmailService
+from pydantic import BaseModel
+from typing import List
 
 
 # ================== CONFIG ==================
@@ -58,6 +62,8 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 user_repo = UserRepository(DATABASE_URL) if DATABASE_URL else None
 product_repo = ProductRepository(DATABASE_URL) if DATABASE_URL else None
+conv_repo = ConversationRepository(DATABASE_URL) if DATABASE_URL else None
+email_service = EmailService(DATABASE_URL) if DATABASE_URL else None
 
 
 def get_user_repo() -> UserRepository:
@@ -72,13 +78,85 @@ def get_product_repo() -> ProductRepository:
     return product_repo
 
 
+def get_conv_repo() -> ConversationRepository:
+    if not conv_repo:
+        raise HTTPException(status_code=500, detail="Database not configured")
+    return conv_repo
+
+
+def get_email_service() -> EmailService:
+    if not email_service:
+        raise HTTPException(status_code=500, detail="Email service not configured")
+    return email_service
+
+
+# ================== PYDANTIC MODELS ==================
+
+class CreateConversationRequest(BaseModel):
+    seller_email: str
+    position_ids: List[str]
+    subject: str
+    body: str
+    language: str = 'en'
+    title: Optional[str] = None
+
+
+class SendMessageRequest(BaseModel):
+    subject: str
+    body: str
+
+
+# ================== CONFIG FOR BACKGROUND TASKS ==================
+
+EMAIL_CHECK_INTERVAL_MINUTES = int(os.getenv('EMAIL_CHECK_INTERVAL_MINUTES', '5'))
+EMAIL_CHECK_ENABLED = os.getenv('EMAIL_CHECK_ENABLED', 'false').lower() == 'true'
+
+
+# ================== BACKGROUND TASK ==================
+
+async def check_responses_task():
+    """Background task that checks for email responses periodically"""
+    while True:
+        try:
+            await asyncio.sleep(EMAIL_CHECK_INTERVAL_MINUTES * 60)
+            if email_service:
+                print(f"[{datetime.now()}] Checking for email responses...")
+                responses = email_service.check_and_save_responses(mark_as_read=True)
+                if responses:
+                    print(f"[{datetime.now()}] Found {len(responses)} new responses")
+                else:
+                    print(f"[{datetime.now()}] No new responses")
+        except asyncio.CancelledError:
+            print("Email check task cancelled")
+            break
+        except Exception as e:
+            print(f"[{datetime.now()}] Error checking responses: {e}")
+
+
 # ================== LIFESPAN ==================
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if user_repo:
         user_repo.create_tables()
+    if conv_repo:
+        conv_repo.create_tables()
+
+    # Start background task if enabled
+    task = None
+    if EMAIL_CHECK_ENABLED and email_service:
+        print(f"Starting email check background task (every {EMAIL_CHECK_INTERVAL_MINUTES} minutes)")
+        task = asyncio.create_task(check_responses_task())
+
     yield
+
+    # Cancel background task on shutdown
+    if task:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 # ================== APP ==================
@@ -538,3 +616,121 @@ async def get_sellers_stats(
         })
 
     return sellers
+
+
+# ================== CONVERSATION ROUTES ==================
+
+@app.post("/api/conversations")
+async def create_conversation(
+    request: CreateConversationRequest,
+    user: UserModel = Depends(get_approved_user),
+    service: EmailService = Depends(get_email_service)
+):
+    """Создание новой переписки и отправка первого сообщения"""
+    result = service.create_and_send_conversation(
+        seller_email=request.seller_email,
+        position_ids=request.position_ids,
+        subject=request.subject,
+        body=request.body,
+        language=request.language,
+        title=request.title
+    )
+
+    if not result['success']:
+        raise HTTPException(status_code=500, detail=result.get('error', 'Failed to create conversation'))
+
+    return result
+
+
+@app.get("/api/conversations")
+async def list_conversations(
+    seller_email: Optional[str] = None,
+    status: Optional[str] = None,
+    user: UserModel = Depends(get_approved_user),
+    repo: ConversationRepository = Depends(get_conv_repo)
+):
+    """Получение списка переписок"""
+    if seller_email:
+        conversations = repo.get_conversations_with_last_message(seller_email)
+    else:
+        conversations = repo.get_all_conversations(status)
+        conversations = [c.to_dict() for c in conversations]
+
+    return conversations
+
+
+@app.get("/api/conversations/{conversation_id}")
+async def get_conversation(
+    conversation_id: int,
+    user: UserModel = Depends(get_approved_user),
+    repo: ConversationRepository = Depends(get_conv_repo)
+):
+    """Получение переписки со всеми сообщениями"""
+    result = repo.get_conversation_with_messages(conversation_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return result
+
+
+@app.post("/api/conversations/{conversation_id}/messages")
+async def send_message(
+    conversation_id: int,
+    request: SendMessageRequest,
+    user: UserModel = Depends(get_approved_user),
+    service: EmailService = Depends(get_email_service)
+):
+    """Отправка сообщения в существующую переписку"""
+    result = service.send_conversation_message(
+        conversation_id=conversation_id,
+        subject=request.subject,
+        body=request.body
+    )
+
+    if not result['success']:
+        raise HTTPException(status_code=500, detail=result.get('error', 'Failed to send message'))
+
+    return result
+
+
+@app.delete("/api/conversations/{conversation_id}")
+async def delete_conversation(
+    conversation_id: int,
+    user: UserModel = Depends(get_approved_user),
+    repo: ConversationRepository = Depends(get_conv_repo)
+):
+    """Удаление переписки"""
+    success = repo.delete_conversation(conversation_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"message": "Conversation deleted"}
+
+
+@app.patch("/api/conversations/{conversation_id}/status")
+async def update_conversation_status(
+    conversation_id: int,
+    status: str,
+    user: UserModel = Depends(get_approved_user),
+    repo: ConversationRepository = Depends(get_conv_repo)
+):
+    """Обновление статуса переписки"""
+    if status not in ['active', 'closed', 'pending_reply']:
+        raise HTTPException(status_code=400, detail="Invalid status")
+
+    success = repo.update_conversation_status(conversation_id, status)
+    if not success:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"message": f"Status updated to {status}"}
+
+
+@app.post("/api/conversations/check-responses")
+async def check_email_responses(
+    mark_as_read: bool = False,
+    user: UserModel = Depends(get_approved_user),
+    service: EmailService = Depends(get_email_service)
+):
+    """Проверка почты на наличие ответов от продавцов"""
+    responses = service.check_and_save_responses(mark_as_read=mark_as_read)
+    return {
+        "found": len(responses),
+        "responses": responses
+    }

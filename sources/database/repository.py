@@ -3,11 +3,12 @@
 """
 import json
 import hashlib
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
+from datetime import datetime, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import SQLAlchemyError
-from sources.database.models import ProductModel, SellerModel, UserModel, CompareResultModel, Base
+from sources.database.models import ProductModel, SellerModel, UserModel, CompareResultModel, ConversationModel, MessageModel, Base
 from sources.classes.product import Product
 from sources.utils.logger import get_logger
 
@@ -925,5 +926,341 @@ class CompareRepository:
         except SQLAlchemyError as e:
             logger.error(f"Ошибка при получении статистики: {e}")
             return {}
+        finally:
+            session.close()
+
+
+class ConversationRepository:
+    """
+    Репозиторий для работы с переписками (conversations и messages)
+    """
+
+    def __init__(self, database_url: str):
+        self.engine = create_engine(database_url, echo=False)
+        self.SessionLocal = sessionmaker(bind=self.engine, autocommit=False, autoflush=False)
+
+    def create_tables(self):
+        """Создание таблиц в БД"""
+        Base.metadata.create_all(bind=self.engine)
+
+    # === Conversations ===
+
+    def create_conversation(
+        self,
+        seller_email: str,
+        position_ids: List[str],
+        title: Optional[str] = None,
+        language: str = 'en'
+    ) -> Optional[ConversationModel]:
+        """
+        Создание новой переписки с продавцом
+
+        Args:
+            seller_email: Email продавца
+            position_ids: Список part_id позиций, о которых идет переписка
+            title: Название переписки (опционально)
+            language: Язык переписки
+
+        Returns:
+            Созданная переписка или None
+        """
+        session = self.SessionLocal()
+        try:
+            conversation = ConversationModel(
+                seller_email=seller_email,
+                position_ids=position_ids,
+                title=title or f"Inquiry about {len(position_ids)} positions",
+                language=language,
+                status='active',
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc)
+            )
+            session.add(conversation)
+            session.commit()
+            session.refresh(conversation)
+            logger.info(f"Создана переписка {conversation.id} с {seller_email}")
+            return conversation
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Ошибка при создании переписки: {e}")
+            return None
+        finally:
+            session.close()
+
+    def get_conversation(self, conversation_id: int) -> Optional[ConversationModel]:
+        """Получение переписки по ID"""
+        session = self.SessionLocal()
+        try:
+            return session.query(ConversationModel).filter_by(id=conversation_id).first()
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при получении переписки {conversation_id}: {e}")
+            return None
+        finally:
+            session.close()
+
+    def get_conversations_by_seller(self, seller_email: str) -> List[ConversationModel]:
+        """Получение всех переписок с продавцом"""
+        session = self.SessionLocal()
+        try:
+            return session.query(ConversationModel)\
+                .filter_by(seller_email=seller_email)\
+                .order_by(ConversationModel.last_message_at.desc().nullsfirst(), ConversationModel.created_at.desc())\
+                .all()
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при получении переписок с {seller_email}: {e}")
+            return []
+        finally:
+            session.close()
+
+    def get_all_conversations(self, status: Optional[str] = None) -> List[ConversationModel]:
+        """Получение всех переписок"""
+        session = self.SessionLocal()
+        try:
+            query = session.query(ConversationModel)
+            if status:
+                query = query.filter_by(status=status)
+            return query.order_by(ConversationModel.last_message_at.desc().nullsfirst()).all()
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при получении переписок: {e}")
+            return []
+        finally:
+            session.close()
+
+    def update_conversation_status(self, conversation_id: int, status: str) -> bool:
+        """Обновление статуса переписки"""
+        session = self.SessionLocal()
+        try:
+            conversation = session.query(ConversationModel).filter_by(id=conversation_id).first()
+            if conversation:
+                conversation.status = status
+                conversation.updated_at = datetime.now(timezone.utc)
+                session.commit()
+                return True
+            return False
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Ошибка при обновлении статуса переписки {conversation_id}: {e}")
+            return False
+        finally:
+            session.close()
+
+    def delete_conversation(self, conversation_id: int) -> bool:
+        """Удаление переписки (каскадно удалит все сообщения)"""
+        session = self.SessionLocal()
+        try:
+            conversation = session.query(ConversationModel).filter_by(id=conversation_id).first()
+            if conversation:
+                session.delete(conversation)
+                session.commit()
+                logger.info(f"Удалена переписка {conversation_id}")
+                return True
+            return False
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Ошибка при удалении переписки {conversation_id}: {e}")
+            return False
+        finally:
+            session.close()
+
+    # === Messages ===
+
+    def add_message(
+        self,
+        conversation_id: int,
+        direction: str,  # 'outbound' или 'inbound'
+        body: str,
+        subject: Optional[str] = None,
+        body_html: Optional[str] = None,
+        status: str = 'draft',
+        message_id: Optional[str] = None,
+        in_reply_to: Optional[str] = None,
+        references: Optional[str] = None
+    ) -> Optional[MessageModel]:
+        """
+        Добавление сообщения в переписку
+
+        Args:
+            conversation_id: ID переписки
+            direction: Направление ('outbound' - мы отправляем, 'inbound' - нам отправляют)
+            body: Текст сообщения
+            subject: Тема (опционально)
+            body_html: HTML версия (опционально)
+            status: Статус сообщения
+            message_id: Email Message-ID
+            in_reply_to: In-Reply-To header
+            references: References header
+
+        Returns:
+            Созданное сообщение или None
+        """
+        session = self.SessionLocal()
+        try:
+            message = MessageModel(
+                conversation_id=conversation_id,
+                direction=direction,
+                subject=subject,
+                body=body,
+                body_html=body_html,
+                status=status,
+                message_id=message_id,
+                in_reply_to=in_reply_to,
+                references=references,
+                created_at=datetime.now(timezone.utc),
+                received_at=datetime.now(timezone.utc) if direction == 'inbound' else None
+            )
+            session.add(message)
+
+            # Обновляем last_message_at в переписке
+            conversation = session.query(ConversationModel).filter_by(id=conversation_id).first()
+            if conversation:
+                conversation.last_message_at = datetime.now(timezone.utc)
+                conversation.updated_at = datetime.now(timezone.utc)
+                # Если получили ответ, меняем статус
+                if direction == 'inbound' and conversation.status == 'pending_reply':
+                    conversation.status = 'active'
+
+            session.commit()
+            session.refresh(message)
+            logger.info(f"Добавлено сообщение {message.id} в переписку {conversation_id}")
+            return message
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Ошибка при добавлении сообщения: {e}")
+            return None
+        finally:
+            session.close()
+
+    def get_messages(self, conversation_id: int) -> List[MessageModel]:
+        """Получение всех сообщений переписки"""
+        session = self.SessionLocal()
+        try:
+            return session.query(MessageModel)\
+                .filter_by(conversation_id=conversation_id)\
+                .order_by(MessageModel.created_at.asc())\
+                .all()
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при получении сообщений переписки {conversation_id}: {e}")
+            return []
+        finally:
+            session.close()
+
+    def get_message(self, message_id: int) -> Optional[MessageModel]:
+        """Получение сообщения по ID"""
+        session = self.SessionLocal()
+        try:
+            return session.query(MessageModel).filter_by(id=message_id).first()
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при получении сообщения {message_id}: {e}")
+            return None
+        finally:
+            session.close()
+
+    def update_message_status(
+        self,
+        message_id: int,
+        status: str,
+        error_message: Optional[str] = None,
+        sent_at: Optional[datetime] = None,
+        email_message_id: Optional[str] = None
+    ) -> bool:
+        """Обновление статуса сообщения после отправки"""
+        session = self.SessionLocal()
+        try:
+            message = session.query(MessageModel).filter_by(id=message_id).first()
+            if message:
+                message.status = status
+                if error_message:
+                    message.error_message = error_message
+                if sent_at:
+                    message.sent_at = sent_at
+                if email_message_id:
+                    message.message_id = email_message_id
+                session.commit()
+                return True
+            return False
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Ошибка при обновлении статуса сообщения {message_id}: {e}")
+            return False
+        finally:
+            session.close()
+
+    def find_conversation_by_message_id(self, email_message_id: str) -> Optional[ConversationModel]:
+        """Поиск переписки по Message-ID (для связывания ответов)"""
+        session = self.SessionLocal()
+        try:
+            message = session.query(MessageModel).filter_by(message_id=email_message_id).first()
+            if message:
+                return session.query(ConversationModel).filter_by(id=message.conversation_id).first()
+            return None
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при поиске переписки по message_id {email_message_id}: {e}")
+            return None
+        finally:
+            session.close()
+
+    def find_conversation_by_in_reply_to(self, in_reply_to: str) -> Optional[ConversationModel]:
+        """Поиск переписки по In-Reply-To header (для связывания ответов)"""
+        session = self.SessionLocal()
+        try:
+            # Ищем сообщение с таким message_id
+            original_message = session.query(MessageModel).filter_by(message_id=in_reply_to).first()
+            if original_message:
+                return session.query(ConversationModel).filter_by(id=original_message.conversation_id).first()
+            return None
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при поиске переписки по in_reply_to {in_reply_to}: {e}")
+            return None
+        finally:
+            session.close()
+
+    def get_conversation_with_messages(self, conversation_id: int) -> Optional[Dict[str, Any]]:
+        """Получение переписки со всеми сообщениями (для отображения в чате)"""
+        session = self.SessionLocal()
+        try:
+            conversation = session.query(ConversationModel).filter_by(id=conversation_id).first()
+            if not conversation:
+                return None
+
+            messages = session.query(MessageModel)\
+                .filter_by(conversation_id=conversation_id)\
+                .order_by(MessageModel.created_at.asc())\
+                .all()
+
+            return {
+                'conversation': conversation.to_dict(),
+                'messages': [m.to_dict() for m in messages]
+            }
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при получении переписки {conversation_id}: {e}")
+            return None
+        finally:
+            session.close()
+
+    def get_conversations_with_last_message(self, seller_email: str) -> List[Dict[str, Any]]:
+        """Получение списка переписок с последним сообщением (для списка чатов)"""
+        session = self.SessionLocal()
+        try:
+            conversations = session.query(ConversationModel)\
+                .filter_by(seller_email=seller_email)\
+                .order_by(ConversationModel.last_message_at.desc().nullsfirst(), ConversationModel.created_at.desc())\
+                .all()
+
+            result = []
+            for conv in conversations:
+                last_message = session.query(MessageModel)\
+                    .filter_by(conversation_id=conv.id)\
+                    .order_by(MessageModel.created_at.desc())\
+                    .first()
+
+                conv_dict = conv.to_dict()
+                conv_dict['last_message'] = last_message.to_dict() if last_message else None
+                conv_dict['message_count'] = session.query(MessageModel).filter_by(conversation_id=conv.id).count()
+                result.append(conv_dict)
+
+            return result
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при получении переписок с {seller_email}: {e}")
+            return []
         finally:
             session.close()

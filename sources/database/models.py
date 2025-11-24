@@ -269,27 +269,27 @@ class CompareResultModel(Base):
 class EmailLogModel(Base):
     """
     SQLAlchemy модель для таблицы email_logs
-    
-    Хранит историю отправленных email сообщений продавцам
+
+    Хранит историю отправленных email сообщений продавцам (legacy, для обратной совместимости)
     """
     __tablename__ = 'email_logs'
-    
+
     # PRIMARY KEY
     id = Column(Integer, primary_key=True, autoincrement=True)
-    
+
     # Основные поля
     seller_email = Column(String(255), nullable=False)  # Email продавца
     product_part_id = Column(String(50), nullable=True)  # ID товара (может быть NULL для bulk запросов)
     subject = Column(String(500), nullable=False)  # Тема письма
     body = Column(Text, nullable=False)  # Тело письма
-    
+
     # Статус и метаданные
     status = Column(String(50), nullable=False, default='sent')  # sent, failed, bounced
     error_message = Column(Text, nullable=True)  # Сообщение об ошибке (если status=failed)
     sent_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     response_received = Column(Boolean, default=False, nullable=False)  # Получен ли ответ
     response_at = Column(DateTime, nullable=True)  # Когда получен ответ
-    
+
     # Индексы
     __table_args__ = (
         Index('idx_email_logs_seller_email', 'seller_email'),
@@ -298,11 +298,11 @@ class EmailLogModel(Base):
         Index('idx_email_logs_sent_at', 'sent_at'),
         Index('idx_email_logs_response_received', 'response_received'),
     )
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """
         Преобразование в словарь
-        
+
         Returns:
             Словарь с данными email лога
         """
@@ -318,7 +318,126 @@ class EmailLogModel(Base):
             'response_received': self.response_received,
             'response_at': self.response_at.isoformat() if self.response_at else None
         }
-    
+
     def __repr__(self) -> str:
         return f"EmailLogModel(id={self.id}, seller_email={self.seller_email}, status={self.status})"
+
+
+class ConversationModel(Base):
+    """
+    SQLAlchemy модель для таблицы conversations
+
+    Хранит переписки с продавцами. Каждая переписка связана с конкретным набором позиций.
+    У одного продавца может быть несколько переписок о разных позициях.
+    """
+    __tablename__ = 'conversations'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Связь с продавцом
+    seller_email = Column(String(255), nullable=False)
+
+    # Название/тема переписки (генерируется автоматически или задается вручную)
+    title = Column(String(500), nullable=True)
+
+    # Позиции, о которых идет переписка (массив part_id)
+    position_ids = Column(JSONB, nullable=False, default=[])
+
+    # Статус переписки
+    status = Column(String(50), nullable=False, default='active')  # active, closed, pending_reply
+
+    # Язык переписки
+    language = Column(String(10), nullable=False, default='en')  # en, ru
+
+    # Метаданные
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    last_message_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index('idx_conversations_seller_email', 'seller_email'),
+        Index('idx_conversations_status', 'status'),
+        Index('idx_conversations_created_at', 'created_at'),
+        Index('idx_conversations_last_message_at', 'last_message_at'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'seller_email': self.seller_email,
+            'title': self.title,
+            'position_ids': self.position_ids or [],
+            'status': self.status,
+            'language': self.language,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'last_message_at': self.last_message_at.isoformat() if self.last_message_at else None,
+        }
+
+    def __repr__(self) -> str:
+        return f"ConversationModel(id={self.id}, seller_email={self.seller_email}, status={self.status})"
+
+
+class MessageModel(Base):
+    """
+    SQLAlchemy модель для таблицы messages
+
+    Хранит отдельные сообщения в переписках.
+    """
+    __tablename__ = 'messages'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Связь с перепиской
+    conversation_id = Column(Integer, ForeignKey('conversations.id', ondelete='CASCADE'), nullable=False)
+
+    # Направление сообщения
+    direction = Column(String(20), nullable=False)  # outbound (мы -> продавец), inbound (продавец -> нам)
+
+    # Содержимое
+    subject = Column(String(500), nullable=True)
+    body = Column(Text, nullable=False)
+    body_html = Column(Text, nullable=True)  # HTML версия (если есть)
+
+    # Статус отправки (для outbound)
+    status = Column(String(50), nullable=False, default='draft')  # draft, sent, failed, delivered
+    error_message = Column(Text, nullable=True)
+
+    # Email идентификаторы для связывания ответов
+    message_id = Column(String(255), nullable=True)  # Message-ID header
+    in_reply_to = Column(String(255), nullable=True)  # In-Reply-To header
+    references = Column(Text, nullable=True)  # References header
+
+    # Метаданные
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    sent_at = Column(DateTime, nullable=True)
+    received_at = Column(DateTime, nullable=True)  # Для inbound сообщений
+
+    __table_args__ = (
+        Index('idx_messages_conversation_id', 'conversation_id'),
+        Index('idx_messages_direction', 'direction'),
+        Index('idx_messages_status', 'status'),
+        Index('idx_messages_created_at', 'created_at'),
+        Index('idx_messages_message_id', 'message_id'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'conversation_id': self.conversation_id,
+            'direction': self.direction,
+            'subject': self.subject,
+            'body': self.body,
+            'body_html': self.body_html,
+            'status': self.status,
+            'error_message': self.error_message,
+            'message_id': self.message_id,
+            'in_reply_to': self.in_reply_to,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'sent_at': self.sent_at.isoformat() if self.sent_at else None,
+            'received_at': self.received_at.isoformat() if self.received_at else None,
+        }
+
+    def __repr__(self) -> str:
+        return f"MessageModel(id={self.id}, conversation_id={self.conversation_id}, direction={self.direction})"
 

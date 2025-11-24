@@ -14,12 +14,13 @@ import os
 from pathlib import Path
 
 from sources.classes.product import Product
-from sources.database.models import EmailLogModel
-from sources.database.repository import ProductRepository
+from sources.database.models import EmailLogModel, ConversationModel, MessageModel
+from sources.database.repository import ProductRepository, ConversationRepository
 from sources.utils.logger import get_logger
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import SQLAlchemyError
+import uuid
 
 logger = get_logger("email_service")
 
@@ -56,11 +57,15 @@ class EmailService:
         self.smtp_password = os.getenv('SMTP_PASSWORD')
         self.sender_email = os.getenv('SENDER_EMAIL', self.smtp_user)
         self.sender_name = os.getenv('SENDER_NAME', 'MSG Buyer')
-        
+
         # IMAP конфигурация для получения ответов
         self.imap_host = os.getenv('IMAP_HOST', 'imap.gmail.com')
         self.imap_port = int(os.getenv('IMAP_PORT', '993'))
-        
+
+        # Debug mode - send all emails to ADMIN_EMAIL
+        self.debug_mode = os.getenv('DEBUG', 'false').lower() == 'true'
+        self.admin_email = os.getenv('ADMIN_EMAIL')
+
         # Лимиты
         self.max_emails_per_day = int(os.getenv('MAX_EMAILS_PER_DAY', '50'))
         
@@ -704,16 +709,16 @@ class EmailService:
     def _update_response_status(self, seller_email: str) -> bool:
         """
         Обновление статуса получения ответа в БД
-        
+
         Args:
             seller_email: Email продавца
-            
+
         Returns:
             True если обновлено успешно
         """
         if not self.SessionLocal:
             return False
-        
+
         session: Session = self.SessionLocal()
         try:
             # Находим последний отправленный email этому продавцу
@@ -721,18 +726,383 @@ class EmailService:
                 seller_email=seller_email,
                 response_received=False
             ).order_by(EmailLogModel.sent_at.desc()).first()
-            
+
             if email_log:
                 email_log.response_received = True
                 session.commit()
                 logger.debug(f"Обновлен статус ответа для {seller_email}")
                 return True
-            
+
             return False
-            
+
         except SQLAlchemyError as e:
             session.rollback()
             logger.error(f"Ошибка обновления статуса ответа: {e}", exc_info=True)
             return False
         finally:
             session.close()
+
+    # === Conversation-based email methods ===
+
+    def send_conversation_message(
+        self,
+        conversation_id: int,
+        subject: str,
+        body: str,
+        body_html: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Отправка сообщения в рамках переписки
+
+        Args:
+            conversation_id: ID переписки
+            subject: Тема письма
+            body: Текст письма
+            body_html: HTML версия (опционально)
+
+        Returns:
+            Словарь с результатом {success, message_id, error}
+        """
+        if not self.database_url:
+            return {'success': False, 'error': 'Database not configured'}
+
+        conv_repo = ConversationRepository(self.database_url)
+
+        # Получаем переписку
+        conversation = conv_repo.get_conversation(conversation_id)
+        if not conversation:
+            return {'success': False, 'error': 'Conversation not found'}
+
+        # Получаем последнее исходящее сообщение для построения цепочки
+        messages = conv_repo.get_messages(conversation_id)
+        last_outbound = None
+        references_list = []
+
+        for msg in messages:
+            if msg.message_id:
+                references_list.append(msg.message_id)
+            if msg.direction == 'outbound' and msg.message_id:
+                last_outbound = msg
+
+        # Генерируем Message-ID
+        message_id = f"<{uuid.uuid4()}@msg-buyer.local>"
+        in_reply_to = last_outbound.message_id if last_outbound else None
+        references = ' '.join(references_list) if references_list else None
+
+        # Сохраняем сообщение как draft
+        message = conv_repo.add_message(
+            conversation_id=conversation_id,
+            direction='outbound',
+            subject=subject,
+            body=body,
+            body_html=body_html,
+            status='draft',
+            message_id=message_id,
+            in_reply_to=in_reply_to,
+            references=references
+        )
+
+        if not message:
+            return {'success': False, 'error': 'Failed to create message'}
+
+        # Отправляем email
+        success = self._send_email_with_headers(
+            to_email=conversation.seller_email,
+            subject=subject,
+            body=body_html or body,
+            html=body_html is not None,
+            message_id=message_id,
+            in_reply_to=in_reply_to,
+            references=references
+        )
+
+        # Обновляем статус сообщения
+        if success:
+            conv_repo.update_message_status(
+                message_id=message.id,
+                status='sent',
+                sent_at=datetime.now(timezone.utc),
+                email_message_id=message_id
+            )
+            # Обновляем статус переписки
+            conv_repo.update_conversation_status(conversation_id, 'pending_reply')
+            return {'success': True, 'message_id': message.id, 'email_message_id': message_id}
+        else:
+            conv_repo.update_message_status(
+                message_id=message.id,
+                status='failed',
+                error_message='Failed to send email'
+            )
+            return {'success': False, 'error': 'Failed to send email', 'message_id': message.id}
+
+    def _send_email_with_headers(
+        self,
+        to_email: str,
+        subject: str,
+        body: str,
+        html: bool = False,
+        message_id: Optional[str] = None,
+        in_reply_to: Optional[str] = None,
+        references: Optional[str] = None
+    ) -> bool:
+        """
+        Отправка email с дополнительными заголовками для threading
+
+        Args:
+            to_email: Email получателя
+            subject: Тема письма
+            body: Тело письма
+            html: Использовать HTML формат
+            message_id: Message-ID header
+            in_reply_to: In-Reply-To header
+            references: References header
+
+        Returns:
+            True если отправлено успешно
+        """
+        try:
+            # Debug mode: redirect all emails to ADMIN_EMAIL
+            actual_recipient = to_email
+            if self.debug_mode and self.admin_email:
+                actual_recipient = self.admin_email
+                # Modify subject to show original recipient
+                subject = f"[DEBUG to: {to_email}] {subject}"
+                logger.info(f"DEBUG MODE: Redirecting email from {to_email} to {self.admin_email}")
+
+            # Создаем сообщение
+            msg = MIMEMultipart('alternative')
+            msg['From'] = f"{self.sender_name} <{self.sender_email}>"
+            msg['To'] = actual_recipient
+            msg['Subject'] = subject
+            msg['Reply-To'] = self.sender_email
+
+            # Добавляем заголовки для threading
+            if message_id:
+                msg['Message-ID'] = message_id
+            if in_reply_to:
+                msg['In-Reply-To'] = in_reply_to
+            if references:
+                msg['References'] = references
+
+            # Добавляем тело письма
+            if html:
+                msg.attach(MIMEText(body, 'html', 'utf-8'))
+            else:
+                msg.attach(MIMEText(body, 'plain', 'utf-8'))
+
+            # Подключаемся к SMTP серверу
+            logger.info(f"Подключение к SMTP {self.smtp_host}:{self.smtp_port}")
+            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.smtp_user, self.smtp_password)
+                server.send_message(msg)
+
+            logger.info(f"Email отправлен на {actual_recipient}" + (f" (original: {to_email})" if self.debug_mode else ""))
+            return True
+
+        except smtplib.SMTPException as e:
+            logger.error(f"SMTP ошибка при отправке на {to_email}: {e}", exc_info=True)
+            return False
+        except Exception as e:
+            logger.error(f"Ошибка при отправке email на {to_email}: {e}", exc_info=True)
+            return False
+
+    def check_and_save_responses(self, mark_as_read: bool = False) -> List[Dict[str, Any]]:
+        """
+        Проверка почтового ящика и сохранение ответов в соответствующие переписки.
+        Проверяет только письма от продавцов, с которыми есть активные переписки.
+
+        Args:
+            mark_as_read: Помечать ли письма как прочитанные
+
+        Returns:
+            Список сохраненных ответов
+        """
+        if not self.validate_configuration() or not self.database_url:
+            return []
+
+        conv_repo = ConversationRepository(self.database_url)
+        saved_responses = []
+
+        # Get all seller emails we have conversations with
+        all_conversations = conv_repo.get_all_conversations()
+        seller_emails = set(c.seller_email for c in all_conversations)
+
+        if not seller_emails:
+            logger.info("No active conversations, skipping email check")
+            return []
+
+        logger.info(f"Checking emails from {len(seller_emails)} sellers")
+
+        try:
+            # Подключаемся к IMAP серверу
+            logger.info(f"Подключение к IMAP {self.imap_host}:{self.imap_port}")
+            mail = imaplib.IMAP4_SSL(self.imap_host, self.imap_port)
+            mail.login(self.smtp_user, self.smtp_password)
+            mail.select('INBOX')
+
+            # Build IMAP search query for unread emails from our sellers
+            # IMAP OR syntax: (OR (FROM "a@b.com") (OR (FROM "c@d.com") (FROM "e@f.com")))
+            if len(seller_emails) == 1:
+                search_query = f'(UNSEEN FROM "{list(seller_emails)[0]}")'
+            else:
+                # Build nested OR query for multiple sellers
+                emails_list = list(seller_emails)
+                search_query = f'FROM "{emails_list[-1]}"'
+                for email_addr in reversed(emails_list[:-1]):
+                    search_query = f'OR (FROM "{email_addr}") ({search_query})'
+                search_query = f'(UNSEEN {search_query})'
+
+            logger.info(f"IMAP search: {search_query}")
+            status, messages = mail.search(None, search_query)
+
+            if status != 'OK':
+                logger.warning("Не удалось получить список писем")
+                return saved_responses
+
+            email_ids = messages[0].split()
+            logger.info(f"Найдено {len(email_ids)} непрочитанных писем")
+
+            # Обрабатываем каждое письмо
+            for email_id in email_ids:
+                try:
+                    status, msg_data = mail.fetch(email_id, '(RFC822)')
+
+                    if status != 'OK':
+                        continue
+
+                    # Парсим email
+                    email_body = msg_data[0][1]
+                    email_message = email.message_from_bytes(email_body)
+
+                    # Извлекаем заголовки для связывания
+                    in_reply_to = email_message.get('In-Reply-To', '').strip()
+                    references = email_message.get('References', '').strip()
+                    from_email = self._extract_email(email_message['From'])
+                    subject = self._decode_header(email_message['Subject'])
+                    body = self._get_email_body(email_message)
+                    received_message_id = email_message.get('Message-ID', '').strip()
+
+                    # Пытаемся найти связанную переписку
+                    conversation = None
+
+                    # Сначала по In-Reply-To
+                    if in_reply_to:
+                        conversation = conv_repo.find_conversation_by_in_reply_to(in_reply_to)
+
+                    # Затем по References
+                    if not conversation and references:
+                        for ref in references.split():
+                            ref = ref.strip()
+                            if ref:
+                                conversation = conv_repo.find_conversation_by_message_id(ref)
+                                if conversation:
+                                    break
+
+                    # Если нашли переписку, сохраняем ответ
+                    if conversation:
+                        message = conv_repo.add_message(
+                            conversation_id=conversation.id,
+                            direction='inbound',
+                            subject=subject,
+                            body=body,
+                            status='received',
+                            message_id=received_message_id,
+                            in_reply_to=in_reply_to,
+                            references=references
+                        )
+
+                        if message:
+                            saved_responses.append({
+                                'conversation_id': conversation.id,
+                                'message_id': message.id,
+                                'from_email': from_email,
+                                'subject': subject,
+                                'body': body[:200] + '...' if len(body) > 200 else body
+                            })
+                            logger.info(f"Сохранен ответ в переписку {conversation.id} от {from_email}")
+                    else:
+                        # Переписка не найдена - логируем
+                        logger.info(f"Не найдена переписка для письма от {from_email}: {subject}")
+
+                    # Помечаем как прочитанное
+                    if mark_as_read:
+                        mail.store(email_id, '+FLAGS', '\\Seen')
+
+                except Exception as e:
+                    logger.error(f"Ошибка обработки письма {email_id}: {e}", exc_info=True)
+                    continue
+
+            mail.close()
+            mail.logout()
+
+        except imaplib.IMAP4.error as e:
+            logger.error(f"IMAP ошибка: {e}", exc_info=True)
+        except Exception as e:
+            logger.error(f"Ошибка при проверке ответов: {e}", exc_info=True)
+
+        return saved_responses
+
+    def create_and_send_conversation(
+        self,
+        seller_email: str,
+        position_ids: List[str],
+        subject: str,
+        body: str,
+        body_html: Optional[str] = None,
+        language: str = 'en',
+        title: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Создание новой переписки и отправка первого сообщения
+
+        Args:
+            seller_email: Email продавца
+            position_ids: Список part_id позиций
+            subject: Тема письма
+            body: Текст письма
+            body_html: HTML версия (опционально)
+            language: Язык переписки
+            title: Название переписки (опционально)
+
+        Returns:
+            Словарь с результатом {success, conversation_id, message_id, error}
+        """
+        if not self.database_url:
+            return {'success': False, 'error': 'Database not configured'}
+
+        if not self.validate_configuration():
+            return {'success': False, 'error': 'SMTP not configured'}
+
+        conv_repo = ConversationRepository(self.database_url)
+
+        # Создаем переписку
+        conversation = conv_repo.create_conversation(
+            seller_email=seller_email,
+            position_ids=position_ids,
+            title=title or subject,
+            language=language
+        )
+
+        if not conversation:
+            return {'success': False, 'error': 'Failed to create conversation'}
+
+        # Отправляем первое сообщение
+        result = self.send_conversation_message(
+            conversation_id=conversation.id,
+            subject=subject,
+            body=body,
+            body_html=body_html
+        )
+
+        if result['success']:
+            return {
+                'success': True,
+                'conversation_id': conversation.id,
+                'message_id': result['message_id'],
+                'email_message_id': result.get('email_message_id')
+            }
+        else:
+            # Удаляем переписку если не удалось отправить
+            conv_repo.delete_conversation(conversation.id)
+            return {'success': False, 'error': result.get('error', 'Failed to send message')}

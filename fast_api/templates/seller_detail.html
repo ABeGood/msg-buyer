@@ -319,6 +319,72 @@
 
         .send-btn:hover { background: #5a6fd6; }
         .send-btn:disabled { background: #ccc; cursor: not-allowed; }
+
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-overlay.active { display: flex; }
+
+        .modal {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        }
+
+        .modal h4 {
+            font-size: 18px;
+            margin-bottom: 12px;
+            color: #333;
+        }
+
+        .modal p {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+
+        .modal-btn {
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            border: none;
+        }
+
+        .modal-btn.cancel {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .modal-btn.cancel:hover { background: #e0e0e0; }
+
+        .modal-btn.confirm {
+            background: #667eea;
+            color: white;
+        }
+
+        .modal-btn.confirm:hover { background: #5a6fd6; }
     </style>
 </head>
 <body>
@@ -409,7 +475,19 @@
                 <textarea class="message-textarea" id="email-body" placeholder="Select positions to generate email template..."></textarea>
             </div>
             <div class="chat-footer">
-                <button class="send-btn" id="send-btn" onclick="copyToClipboard()">Copy to Clipboard</button>
+                <button class="send-btn" id="send-btn" onclick="showSendConfirmation()">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div class="modal-overlay" id="send-modal">
+        <div class="modal">
+            <h4>Send Email?</h4>
+            <p>Are you sure you want to send this email to <strong id="modal-recipient"></strong>?</p>
+            <div class="modal-buttons">
+                <button class="modal-btn cancel" onclick="closeModal()">Cancel</button>
+                <button class="modal-btn confirm" onclick="confirmSend()">Send</button>
             </div>
         </div>
     </div>
@@ -601,17 +679,78 @@
             document.getElementById('email-body').value = template.header + partsList + template.footer;
         }
 
-        function copyToClipboard() {
+        function showSendConfirmation() {
+            if (selectedPositions.size === 0) {
+                alert('Please select at least one position');
+                return;
+            }
+            document.getElementById('modal-recipient').textContent = sellerEmail;
+            document.getElementById('send-modal').classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('send-modal').classList.remove('active');
+        }
+
+        async function confirmSend() {
             const subject = document.getElementById('email-subject').value;
             const body = document.getElementById('email-body').value;
-            const text = `Subject: ${subject}\n\n${body}`;
+            const selectedPartIds = allPositions
+                .filter(p => selectedPositions.has(p.id))
+                .map(p => p.part_id);
 
-            navigator.clipboard.writeText(text).then(() => {
-                const btn = document.getElementById('send-btn');
-                btn.textContent = 'Copied!';
-                setTimeout(() => btn.textContent = 'Copy to Clipboard', 2000);
-            });
+            // Disable button and show loading
+            const confirmBtn = document.querySelector('.modal-btn.confirm');
+            const originalText = confirmBtn.textContent;
+            confirmBtn.textContent = 'Sending...';
+            confirmBtn.disabled = true;
+
+            try {
+                const res = await fetch('/api/conversations', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        seller_email: sellerEmail,
+                        position_ids: selectedPartIds,
+                        subject: subject,
+                        body: body,
+                        language: currentLanguage
+                    })
+                });
+
+                if (res.status === 401) {
+                    localStorage.removeItem('auth_token');
+                    window.location.href = '/login';
+                    return;
+                }
+
+                const data = await res.json();
+
+                if (res.ok && data.success) {
+                    closeModal();
+                    // Clear selection and show success
+                    selectedPositions.clear();
+                    renderTable();
+                    updateEmailTemplate();
+                    alert('Email sent successfully! Conversation ID: ' + data.conversation_id);
+                } else {
+                    alert('Failed to send email: ' + (data.detail || data.error || 'Unknown error'));
+                }
+            } catch (e) {
+                alert('Error sending email: ' + e.message);
+            } finally {
+                confirmBtn.textContent = originalText;
+                confirmBtn.disabled = false;
+            }
         }
+
+        // Close modal on overlay click
+        document.getElementById('send-modal').addEventListener('click', function(e) {
+            if (e.target === this) closeModal();
+        });
 
         loadSeller();
         loadPositions();
