@@ -891,7 +891,7 @@ class EmailService:
                     body=body,
                     html=html,
                     message_id=message_id,
-                    in_reply_to=self.sender_email,
+                    in_reply_to=in_reply_to,
                     references=references,
                     original_recipient=to_email if self.debug_mode else None
                 )
@@ -975,12 +975,15 @@ class EmailService:
         try:
             url = f"{self.mailgun_base_url}/v3/{self.mailgun_domain}/messages"
 
+            # Reply-To: env variable REPLY_TO_EMAIL or sender_email
+            reply_to_email = os.getenv('REPLY_TO_EMAIL') or self.sender_email
+
             # Формируем данные запроса
             data = {
                 "from": f"{self.sender_name} <{self.sender_email}>",
                 "to": to_email,
                 "subject": subject,
-                "h:Reply-To": self.sender_email,
+                "h:Reply-To": reply_to_email,
             }
 
             # Тело письма
