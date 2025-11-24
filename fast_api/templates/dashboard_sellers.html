@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSG Buyer - Dashboard</title>
+    <title>MSG Buyer - Sellers Dashboard</title>
     <style>
         * {
             margin: 0;
@@ -17,7 +17,6 @@
             min-height: 100vh;
         }
 
-        /* Header */
         .header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -33,38 +32,6 @@
             display: flex;
             align-items: center;
             gap: 10px;
-        }
-
-        .user-info {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .user-info img {
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            border: 2px solid rgba(255,255,255,0.5);
-        }
-
-        .user-info span {
-            font-size: 14px;
-        }
-
-        .logout-btn {
-            background: rgba(255,255,255,0.2);
-            border: none;
-            color: white;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: background 0.2s;
-        }
-
-        .logout-btn:hover {
-            background: rgba(255,255,255,0.3);
         }
 
         .nav-links {
@@ -85,7 +52,33 @@
             background: rgba(255,255,255,0.25);
         }
 
-        /* Main content */
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .user-info img {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: 2px solid rgba(255,255,255,0.5);
+        }
+
+        .logout-btn {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .logout-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
         .container {
             max-width: 1400px;
             margin: 0 auto;
@@ -119,7 +112,9 @@
             color: #333;
         }
 
-        /* Table */
+        .stat-card .value.green { color: #28a745; }
+        .stat-card .value.red { color: #dc3545; }
+
         .table-container {
             background: white;
             border-radius: 12px;
@@ -173,7 +168,11 @@
             font-weight: 600;
             position: sticky;
             top: 0;
-            z-index: 10;
+            cursor: pointer;
+        }
+
+        th:hover {
+            background: #eee;
         }
 
         td {
@@ -187,42 +186,33 @@
             background: #f8f9fa;
         }
 
-        .product-image {
-            width: 50px;
-            height: 50px;
-            object-fit: cover;
-            border-radius: 6px;
-            background: #eee;
-        }
-
-        .price {
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
             font-weight: 600;
-            color: #28a745;
         }
 
-        .code {
-            font-family: monospace;
-            background: #f0f0f0;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
+        .badge-ok {
+            background: #d4edda;
+            color: #155724;
         }
 
-        .car-info {
-            font-size: 12px;
-            color: #666;
+        .badge-high {
+            background: #f8d7da;
+            color: #721c24;
         }
 
-        .link {
-            color: #667eea;
-            text-decoration: none;
+        .badge-total {
+            background: #e2e3e5;
+            color: #383d41;
         }
 
-        .link:hover {
-            text-decoration: underline;
+        .rating {
+            color: #ffc107;
         }
 
-        /* Loading */
         .loading {
             text-align: center;
             padding: 40px;
@@ -255,37 +245,27 @@
             margin-bottom: 16px;
         }
 
-        /* Pagination */
-        .pagination {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 8px;
-            padding: 16px;
-            border-top: 1px solid #eee;
+        .seller-name {
+            font-weight: 500;
         }
 
-        .pagination button {
-            padding: 8px 16px;
-            border: 1px solid #ddd;
-            background: white;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-        }
-
-        .pagination button:hover:not(:disabled) {
-            background: #f5f5f5;
-        }
-
-        .pagination button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .pagination span {
+        .seller-email {
+            font-size: 12px;
             color: #666;
-            font-size: 14px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #f8d7da;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-bar .fill {
+            height: 100%;
+            background: #28a745;
+            border-radius: 4px;
         }
     </style>
 </head>
@@ -293,8 +273,8 @@
     <header class="header">
         <h1>🚗 MSG Buyer</h1>
         <nav class="nav-links">
-            <a href="/dashboard" class="active">Products</a>
-            <a href="/dashboard-sellers">Sellers</a>
+            <a href="/dashboard">Products</a>
+            <a href="/dashboard-sellers" class="active">Sellers</a>
         </nav>
         <div class="user-info">
             <img id="user-avatar" src="" alt="Avatar">
@@ -306,73 +286,68 @@
     <div class="container">
         <div class="stats">
             <div class="stat-card">
-                <h3>Total Products</h3>
-                <div class="value" id="total-count">-</div>
+                <h3>Total Sellers</h3>
+                <div class="value" id="total-sellers">-</div>
             </div>
             <div class="stat-card">
-                <h3>Average Price</h3>
-                <div class="value" id="avg-price">-</div>
+                <h3>Total OK Positions</h3>
+                <div class="value green" id="total-ok">-</div>
             </div>
             <div class="stat-card">
-                <h3>Sources</h3>
-                <div class="value" id="sources-count">-</div>
+                <h3>Total HIGH Positions</h3>
+                <div class="value red" id="total-high">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Avg OK per Seller</h3>
+                <div class="value" id="avg-ok">-</div>
             </div>
         </div>
 
         <div class="table-container">
             <div class="table-header">
-                <h2>Products</h2>
-                <input type="text" class="search-box" placeholder="Search by code..." id="search-input" oninput="filterProducts()">
+                <h2>Sellers with Stocklist Matches</h2>
+                <input type="text" class="search-box" placeholder="Search seller..." id="search-input" oninput="filterSellers()">
             </div>
 
-            <div class="table-scroll" id="table-scroll">
+            <div class="table-scroll">
                 <table>
                     <thead>
                         <tr>
-                            <th>Image</th>
-                            <th>Code</th>
-                            <th>Price</th>
-                            <th>Car</th>
-                            <th>Seller</th>
-                            <th>Source</th>
-                            <th>Link</th>
+                            <th onclick="sortBy('name')">Seller</th>
+                            <th onclick="sortBy('rating')">Rating</th>
+                            <th onclick="sortBy('ok_matches')">OK Positions</th>
+                            <th onclick="sortBy('high_matches')">HIGH Positions</th>
+                            <th onclick="sortBy('total_matches')">Total Matches</th>
+                            <th>OK Rate</th>
+                            <th onclick="sortBy('total_products')">Products</th>
                         </tr>
                     </thead>
-                    <tbody id="products-table">
+                    <tbody id="sellers-table">
                         <tr>
                             <td colspan="7">
                                 <div class="loading">
                                     <div class="spinner"></div>
-                                    Loading products...
+                                    Loading sellers...
                                 </div>
                             </td>
                         </tr>
                     </tbody>
                 </table>
             </div>
-
-            <div class="pagination">
-                <button id="prev-btn" onclick="prevPage()" disabled>Previous</button>
-                <span id="page-info">Page 1</span>
-                <button id="next-btn" onclick="nextPage()">Next</button>
-            </div>
         </div>
     </div>
 
     <script>
-        const API_URL = '';
-        let allProducts = [];
-        let filteredProducts = [];
-        let currentPage = 1;
-        const pageSize = 50;
-
-        // Get token from localStorage
         const token = localStorage.getItem('auth_token');
         if (!token) {
             window.location.href = '/login';
         }
 
-        // Fetch user info
+        let allSellers = [];
+        let filteredSellers = [];
+        let sortField = 'ok_matches';
+        let sortAsc = false;
+
         async function loadUser() {
             try {
                 const res = await fetch('/auth/me', {
@@ -388,10 +363,9 @@
             }
         }
 
-        // Fetch products
-        async function loadProducts() {
+        async function loadSellers() {
             try {
-                const res = await fetch('/api/products', {
+                const res = await fetch('/api/sellers-stats', {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 if (res.status === 401) {
@@ -400,16 +374,16 @@
                     return;
                 }
                 if (!res.ok) throw new Error('Failed to load');
-                allProducts = await res.json();
-                filteredProducts = allProducts;
+                allSellers = await res.json();
+                filteredSellers = allSellers;
                 updateStats();
                 renderTable();
             } catch (e) {
-                document.getElementById('products-table').innerHTML = `
+                document.getElementById('sellers-table').innerHTML = `
                     <tr><td colspan="7">
                         <div class="empty-state">
                             <div class="icon">⚠️</div>
-                            <p>Failed to load products</p>
+                            <p>Failed to load sellers</p>
                         </div>
                     </td></tr>
                 `;
@@ -417,80 +391,82 @@
         }
 
         function updateStats() {
-            document.getElementById('total-count').textContent = allProducts.length.toLocaleString();
+            document.getElementById('total-sellers').textContent = allSellers.length;
 
-            const prices = allProducts.filter(p => p.price).map(p => p.price);
-            const avg = prices.length ? (prices.reduce((a, b) => a + b, 0) / prices.length).toFixed(2) : 0;
-            document.getElementById('avg-price').textContent = `€${avg}`;
+            const totalOk = allSellers.reduce((sum, s) => sum + (s.ok_matches || 0), 0);
+            const totalHigh = allSellers.reduce((sum, s) => sum + (s.high_matches || 0), 0);
+            document.getElementById('total-ok').textContent = totalOk;
+            document.getElementById('total-high').textContent = totalHigh;
 
-            const sources = new Set(allProducts.map(p => p.source_site));
-            document.getElementById('sources-count').textContent = sources.size;
+            const avgOk = allSellers.length ? (totalOk / allSellers.length).toFixed(1) : 0;
+            document.getElementById('avg-ok').textContent = avgOk;
         }
 
         function renderTable() {
-            const start = (currentPage - 1) * pageSize;
-            const end = start + pageSize;
-            const pageProducts = filteredProducts.slice(start, end);
-            const totalPages = Math.ceil(filteredProducts.length / pageSize);
-
-            if (pageProducts.length === 0) {
-                document.getElementById('products-table').innerHTML = `
+            if (filteredSellers.length === 0) {
+                document.getElementById('sellers-table').innerHTML = `
                     <tr><td colspan="7">
                         <div class="empty-state">
-                            <div class="icon">📦</div>
-                            <p>No products found</p>
+                            <div class="icon">👤</div>
+                            <p>No sellers found</p>
                         </div>
                     </td></tr>
                 `;
-            } else {
-                document.getElementById('products-table').innerHTML = pageProducts.map(p => `
-                    <tr>
-                        <td>
-                            <img class="product-image" src="${p.images && p.images[0] ? p.images[0] : 'https://via.placeholder.com/50'}" alt="Product" onerror="this.src='https://via.placeholder.com/50'">
-                        </td>
-                        <td><span class="code">${p.code || '-'}</span></td>
-                        <td class="price">${p.price ? '€' + p.price.toFixed(2) : '-'}</td>
-                        <td class="car-info">
-                            ${p.car_details ? `${p.car_details.make || ''} ${p.car_details.model || ''} ${p.car_details.year || ''}`.trim() || '-' : '-'}
-                        </td>
-                        <td>${p.seller_email || '-'}</td>
-                        <td>${p.source_site || '-'}</td>
-                        <td>${p.url ? `<a href="${p.url}" target="_blank" class="link">View</a>` : '-'}</td>
-                    </tr>
-                `).join('');
+                return;
             }
 
-            document.getElementById('page-info').textContent = `Page ${currentPage} of ${totalPages || 1}`;
-            document.getElementById('prev-btn').disabled = currentPage === 1;
-            document.getElementById('next-btn').disabled = currentPage >= totalPages;
+            document.getElementById('sellers-table').innerHTML = filteredSellers.map(s => {
+                const okRate = s.total_matches > 0 ? ((s.ok_matches / s.total_matches) * 100).toFixed(0) : 0;
+                return `
+                    <tr onclick="window.location.href='/seller/${encodeURIComponent(s.email)}'" style="cursor:pointer">
+                        <td>
+                            <div class="seller-name">${s.name || s.title || 'Unknown'}</div>
+                            <div class="seller-email">${s.email || '-'}</div>
+                        </td>
+                        <td class="rating">${s.rating ? '★'.repeat(Math.min(5, Math.round(s.rating/20))) : '-'}</td>
+                        <td><span class="badge badge-ok">${s.ok_matches || 0}</span></td>
+                        <td><span class="badge badge-high">${s.high_matches || 0}</span></td>
+                        <td><span class="badge badge-total">${s.total_matches || 0}</span></td>
+                        <td>
+                            <div class="progress-bar">
+                                <div class="fill" style="width: ${okRate}%"></div>
+                            </div>
+                            <span style="font-size:12px;color:#666">${okRate}%</span>
+                        </td>
+                        <td>${s.total_products || 0}</td>
+                    </tr>
+                `;
+            }).join('');
         }
 
-        function filterProducts() {
+        function filterSellers() {
             const query = document.getElementById('search-input').value.toLowerCase();
-            filteredProducts = allProducts.filter(p =>
-                (p.code && p.code.toLowerCase().includes(query)) ||
-                (p.part_id && p.part_id.toLowerCase().includes(query)) ||
-                (p.seller_email && p.seller_email.toLowerCase().includes(query))
+            filteredSellers = allSellers.filter(s =>
+                (s.name && s.name.toLowerCase().includes(query)) ||
+                (s.email && s.email.toLowerCase().includes(query)) ||
+                (s.title && s.title.toLowerCase().includes(query))
             );
-            currentPage = 1;
             renderTable();
         }
 
-        function prevPage() {
-            if (currentPage > 1) {
-                currentPage--;
-                renderTable();
-                document.getElementById('table-scroll').scrollTop = 0;
+        function sortBy(field) {
+            if (sortField === field) {
+                sortAsc = !sortAsc;
+            } else {
+                sortField = field;
+                sortAsc = false;
             }
-        }
 
-        function nextPage() {
-            const totalPages = Math.ceil(filteredProducts.length / pageSize);
-            if (currentPage < totalPages) {
-                currentPage++;
-                renderTable();
-                document.getElementById('table-scroll').scrollTop = 0;
-            }
+            filteredSellers.sort((a, b) => {
+                let valA = a[field] || 0;
+                let valB = b[field] || 0;
+                if (typeof valA === 'string') valA = valA.toLowerCase();
+                if (typeof valB === 'string') valB = valB.toLowerCase();
+                if (sortAsc) return valA > valB ? 1 : -1;
+                return valA < valB ? 1 : -1;
+            });
+
+            renderTable();
         }
 
         function logout() {
@@ -498,9 +474,8 @@
             window.location.href = '/login';
         }
 
-        // Initialize
         loadUser();
-        loadProducts();
+        loadSellers();
     </script>
 </body>
 </html>

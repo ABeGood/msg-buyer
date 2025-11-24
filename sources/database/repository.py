@@ -7,7 +7,7 @@ from typing import Optional, Dict, Any
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import SQLAlchemyError
-from sources.database.models import ProductModel, SellerModel, UserModel, Base
+from sources.database.models import ProductModel, SellerModel, UserModel, CompareResultModel, Base
 from sources.classes.product import Product
 from sources.utils.logger import get_logger
 
@@ -771,5 +771,159 @@ class UserRepository:
         except SQLAlchemyError as e:
             logger.error(f"Ошибка при получении pending пользователей: {e}")
             return []
+        finally:
+            session.close()
+
+
+class CompareRepository:
+    """
+    Репозиторий для работы с результатами сравнения (таблица compare)
+    """
+
+    def __init__(self, database_url: str):
+        self.engine = create_engine(database_url, echo=False)
+        self.SessionLocal = sessionmaker(bind=self.engine, autocommit=False, autoflush=False)
+
+    def create_tables(self):
+        """Создание таблиц в БД"""
+        Base.metadata.create_all(bind=self.engine)
+
+    def clear_table(self) -> bool:
+        """Очистка таблицы compare перед новым сравнением"""
+        session = self.SessionLocal()
+        try:
+            session.query(CompareResultModel).delete()
+            session.commit()
+            logger.info("Таблица compare очищена")
+            return True
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Ошибка при очистке таблицы compare: {e}")
+            return False
+        finally:
+            session.close()
+
+    def clear_by_catalog(self, catalog: str) -> bool:
+        """Очистка результатов для конкретного каталога"""
+        session = self.SessionLocal()
+        try:
+            session.query(CompareResultModel).filter_by(catalog=catalog).delete()
+            session.commit()
+            logger.info(f"Результаты для каталога {catalog} удалены")
+            return True
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Ошибка при очистке каталога {catalog}: {e}")
+            return False
+        finally:
+            session.close()
+
+    def save_results(self, results: list[Dict[str, Any]], catalog: str) -> int:
+        """
+        Сохранение результатов сравнения в БД
+
+        Args:
+            results: Список словарей с результатами
+            catalog: Название каталога ('eur' или 'gur')
+
+        Returns:
+            Количество сохраненных записей
+        """
+        session = self.SessionLocal()
+        saved_count = 0
+        try:
+            for row in results:
+                compare_result = CompareResultModel(
+                    catalog=catalog,
+                    db_part_id=row.get('db_part_id'),
+                    db_code=row.get('db_code'),
+                    db_price=row.get('db_price'),
+                    db_url=row.get('db_url'),
+                    db_source_site=row.get('db_source_site'),
+                    db_category=row.get('db_category'),
+                    db_oem_code=row.get('db_oem_code'),
+                    db_other_codes=row.get('db_other_codes'),
+                    db_manufacturer_code=row.get('db_manufacturer_code'),
+                    catalog_oes_numbers=row.get('oes_numbers'),
+                    catalog_price_eur=row.get('price_eur'),
+                    catalog_segments_names=row.get('segments_names'),
+                    catalog_data={k: v for k, v in row.items() if not k.startswith('db_') and k not in ['matched_by', 'matched_value', 'price_classification']},
+                    matched_by=row.get('matched_by'),
+                    matched_value=row.get('matched_value'),
+                    price_classification=row.get('price_classification'),
+                )
+                session.add(compare_result)
+                saved_count += 1
+
+            session.commit()
+            logger.info(f"Сохранено {saved_count} результатов для каталога {catalog}")
+            return saved_count
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Ошибка при сохранении результатов: {e}")
+            return 0
+        finally:
+            session.close()
+
+    def get_all(self, catalog: Optional[str] = None) -> list[CompareResultModel]:
+        """Получение всех результатов сравнения"""
+        session = self.SessionLocal()
+        try:
+            query = session.query(CompareResultModel)
+            if catalog:
+                query = query.filter_by(catalog=catalog)
+            return query.all()
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при получении результатов: {e}")
+            return []
+        finally:
+            session.close()
+
+    def get_by_classification(self, classification: str, catalog: Optional[str] = None) -> list[CompareResultModel]:
+        """Получение результатов по классификации цены"""
+        session = self.SessionLocal()
+        try:
+            query = session.query(CompareResultModel).filter_by(price_classification=classification)
+            if catalog:
+                query = query.filter_by(catalog=catalog)
+            return query.all()
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при получении результатов: {e}")
+            return []
+        finally:
+            session.close()
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Получение статистики по результатам сравнения"""
+        session = self.SessionLocal()
+        try:
+            from sqlalchemy import func
+
+            total = session.query(func.count(CompareResultModel.id)).scalar()
+
+            stats = {
+                'total': total,
+                'by_catalog': {},
+                'by_classification': {},
+            }
+
+            # По каталогам
+            catalog_counts = session.query(
+                CompareResultModel.catalog,
+                func.count(CompareResultModel.id)
+            ).group_by(CompareResultModel.catalog).all()
+            stats['by_catalog'] = {cat: cnt for cat, cnt in catalog_counts}
+
+            # По классификации
+            class_counts = session.query(
+                CompareResultModel.price_classification,
+                func.count(CompareResultModel.id)
+            ).group_by(CompareResultModel.price_classification).all()
+            stats['by_classification'] = {cls or 'NA': cnt for cls, cnt in class_counts}
+
+            return stats
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при получении статистики: {e}")
+            return {}
         finally:
             session.close()

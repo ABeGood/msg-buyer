@@ -397,17 +397,7 @@ async def get_seller_positions(
     engine = create_engine(DATABASE_URL)
     with engine.connect() as conn:
         query = text("""
-            WITH url_stats AS (
-                SELECT
-                    c.db_url,
-                    MIN(CASE WHEN c.price_classification = 'OK' THEN 0 ELSE 1 END) as best_class,
-                    MIN(CASE WHEN c.catalog_price_eur > 0 THEN c.catalog_price_eur END) as min_catalog_price
-                FROM compare c
-                JOIN products p ON p.part_id = c.db_part_id
-                WHERE p.seller_email = :email
-                GROUP BY c.db_url
-            )
-            SELECT DISTINCT ON (c.db_url)
+            SELECT
                 c.id,
                 c.catalog,
                 c.db_part_id,
@@ -417,17 +407,16 @@ async def get_seller_positions(
                 c.db_oem_code,
                 c.db_manufacturer_code,
                 c.catalog_oes_numbers,
-                us.min_catalog_price,
+                c.catalog_price_eur,
                 c.catalog_segments_names,
                 c.matched_by,
                 c.matched_value,
-                CASE WHEN us.best_class = 0 THEN 'OK' ELSE c.price_classification END as price_classification,
+                c.price_classification,
                 p.images
             FROM compare c
             JOIN products p ON p.part_id = c.db_part_id
-            JOIN url_stats us ON us.db_url = c.db_url
             WHERE p.seller_email = :email
-            ORDER BY c.db_url, c.db_price ASC
+            ORDER BY c.price_classification ASC, c.db_price ASC
         """)
         result = conn.execute(query, {"email": email})
         rows = result.fetchall()

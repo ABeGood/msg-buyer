@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MSG Buyer - Seller Details</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 20px;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 16px;
+        }
+
+        .nav-links a {
+            color: white;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.1);
+        }
+
+        .nav-links a:hover {
+            background: rgba(255,255,255,0.25);
+        }
+
+        .back-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: white;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.1);
+        }
+
+        .back-btn:hover {
+            background: rgba(255,255,255,0.25);
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        .seller-card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .seller-info h2 {
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+
+        .seller-info p {
+            color: #666;
+            margin-bottom: 4px;
+        }
+
+        .seller-stats {
+            display: flex;
+            gap: 24px;
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat .value {
+            font-size: 32px;
+            font-weight: 600;
+        }
+
+        .stat .label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+        }
+
+        .stat .value.green { color: #28a745; }
+        .stat .value.red { color: #dc3545; }
+
+        .filters {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .filter-btn {
+            padding: 8px 16px;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .filter-btn.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .table-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            overflow: hidden;
+        }
+
+        .table-scroll {
+            max-height: calc(100vh - 380px);
+            overflow-y: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            background: #f8f9fa;
+            padding: 12px 16px;
+            text-align: left;
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #666;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+        }
+
+        td {
+            padding: 12px 16px;
+            border-bottom: 1px solid #eee;
+            font-size: 14px;
+        }
+
+        tr:hover {
+            background: #f8f9fa;
+        }
+
+        .product-image {
+            width: 50px;
+            height: 50px;
+            object-fit: cover;
+            border-radius: 6px;
+            background: #eee;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge-ok { background: #d4edda; color: #155724; }
+        .badge-high { background: #f8d7da; color: #721c24; }
+        .badge-eur { background: #cce5ff; color: #004085; }
+        .badge-gur { background: #fff3cd; color: #856404; }
+
+        .price { font-weight: 600; }
+        .price.ok { color: #28a745; }
+        .price.high { color: #dc3545; }
+
+        .code {
+            font-family: monospace;
+            background: #f0f0f0;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .link {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        .link:hover {
+            text-decoration: underline;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px;
+            color: #666;
+        }
+
+        .matched-info {
+            font-size: 11px;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <h1>🚗 MSG Buyer</h1>
+        <nav class="nav-links">
+            <a href="/dashboard">Products</a>
+            <a href="/dashboard-sellers">Sellers</a>
+        </nav>
+        <a href="/dashboard-sellers" class="back-btn">← Back to Sellers</a>
+    </header>
+
+    <div class="container">
+        <div class="seller-card">
+            <div class="seller-info">
+                <h2 id="seller-name">Loading...</h2>
+                <p id="seller-email"></p>
+                <p id="seller-phone"></p>
+                <p id="seller-address"></p>
+            </div>
+            <div class="seller-stats">
+                <div class="stat">
+                    <div class="value green" id="ok-count">-</div>
+                    <div class="label">OK Positions</div>
+                </div>
+                <div class="stat">
+                    <div class="value red" id="high-count">-</div>
+                    <div class="label">HIGH Positions</div>
+                </div>
+                <div class="stat">
+                    <div class="value" id="total-count">-</div>
+                    <div class="label">Total</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="filters">
+            <button class="filter-btn active" onclick="filterBy('all')">All</button>
+            <button class="filter-btn" onclick="filterBy('OK')">OK Only</button>
+            <button class="filter-btn" onclick="filterBy('HIGH')">HIGH Only</button>
+            <button class="filter-btn" onclick="filterBy('eur')">EUR Catalog</button>
+            <button class="filter-btn" onclick="filterBy('gur')">GUR Catalog</button>
+        </div>
+
+        <div class="table-container">
+            <div class="table-scroll">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Image</th>
+                            <th>Code</th>
+                            <th>Seller Price</th>
+                            <th>Catalog Price</th>
+                            <th>Status</th>
+                            <th>Catalog</th>
+                            <th>Matched By</th>
+                            <th>Link</th>
+                        </tr>
+                    </thead>
+                    <tbody id="positions-table">
+                        <tr>
+                            <td colspan="8">
+                                <div class="loading">
+                                    <div class="spinner"></div>
+                                    Loading positions...
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const token = localStorage.getItem('auth_token');
+        if (!token) {
+            window.location.href = '/login';
+        }
+
+        // Get email from URL
+        const pathParts = window.location.pathname.split('/');
+        const sellerEmail = decodeURIComponent(pathParts[pathParts.length - 1]);
+
+        let allPositions = [];
+        let filteredPositions = [];
+        let currentFilter = 'all';
+
+        async function loadSeller() {
+            try {
+                const res = await fetch(`/api/seller/${encodeURIComponent(sellerEmail)}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (res.status === 401) {
+                    localStorage.removeItem('auth_token');
+                    window.location.href = '/login';
+                    return;
+                }
+                if (!res.ok) throw new Error('Not found');
+                const seller = await res.json();
+
+                document.getElementById('seller-name').textContent = seller.name || seller.title || 'Unknown';
+                document.getElementById('seller-email').textContent = seller.email || '';
+                document.getElementById('seller-phone').textContent = seller.phone ? `Phone: ${seller.phone}` : '';
+                document.getElementById('seller-address').textContent = seller.address || '';
+                document.title = `${seller.name || seller.email} - MSG Buyer`;
+            } catch (e) {
+                document.getElementById('seller-name').textContent = sellerEmail;
+            }
+        }
+
+        async function loadPositions() {
+            try {
+                const res = await fetch(`/api/seller/${encodeURIComponent(sellerEmail)}/positions`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (res.status === 401) {
+                    localStorage.removeItem('auth_token');
+                    window.location.href = '/login';
+                    return;
+                }
+                if (!res.ok) throw new Error('Failed to load');
+                allPositions = await res.json();
+                filteredPositions = allPositions;
+                updateStats();
+                renderTable();
+            } catch (e) {
+                document.getElementById('positions-table').innerHTML = `
+                    <tr><td colspan="8">
+                        <div class="empty-state">Failed to load positions</div>
+                    </td></tr>
+                `;
+            }
+        }
+
+        function updateStats() {
+            const ok = allPositions.filter(p => p.classification === 'OK').length;
+            const high = allPositions.filter(p => p.classification === 'HIGH').length;
+            document.getElementById('ok-count').textContent = ok;
+            document.getElementById('high-count').textContent = high;
+            document.getElementById('total-count').textContent = allPositions.length;
+        }
+
+        function renderTable() {
+            if (filteredPositions.length === 0) {
+                document.getElementById('positions-table').innerHTML = `
+                    <tr><td colspan="8">
+                        <div class="empty-state">No positions found</div>
+                    </td></tr>
+                `;
+                return;
+            }
+
+            document.getElementById('positions-table').innerHTML = filteredPositions.map(p => `
+                <tr>
+                    <td>
+                        <img class="product-image"
+                             src="${p.images && p.images[0] ? p.images[0] : 'https://via.placeholder.com/50'}"
+                             alt="Product"
+                             onerror="this.src='https://via.placeholder.com/50'">
+                    </td>
+                    <td>
+                        <span class="code">${p.code || p.part_id}</span>
+                        ${p.oem_code ? `<div class="matched-info">OEM: ${p.oem_code}</div>` : ''}
+                    </td>
+                    <td class="price ${p.classification === 'OK' ? 'ok' : 'high'}">
+                        ${p.price ? '€' + p.price.toFixed(2) : '-'}
+                    </td>
+                    <td>
+                        ${p.catalog_price_eur ? '€' + p.catalog_price_eur.toFixed(2) : '-'}
+                        ${p.catalog_segments ? `<div class="matched-info">${p.catalog_segments}</div>` : ''}
+                    </td>
+                    <td><span class="badge badge-${p.classification?.toLowerCase() || 'na'}">${p.classification || 'N/A'}</span></td>
+                    <td><span class="badge badge-${p.catalog}">${p.catalog?.toUpperCase()}</span></td>
+                    <td>
+                        <span class="code">${p.matched_value || '-'}</span>
+                        <div class="matched-info">${p.matched_by || ''}</div>
+                    </td>
+                    <td>${p.url ? `<a href="${p.url}" target="_blank" class="link">View</a>` : '-'}</td>
+                </tr>
+            `).join('');
+        }
+
+        function filterBy(filter) {
+            currentFilter = filter;
+
+            // Update button states
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.textContent.toLowerCase().includes(filter.toLowerCase()) ||
+                    (filter === 'all' && btn.textContent === 'All')) {
+                    btn.classList.add('active');
+                }
+            });
+
+            if (filter === 'all') {
+                filteredPositions = allPositions;
+            } else if (filter === 'OK' || filter === 'HIGH') {
+                filteredPositions = allPositions.filter(p => p.classification === filter);
+            } else if (filter === 'eur' || filter === 'gur') {
+                filteredPositions = allPositions.filter(p => p.catalog === filter);
+            }
+
+            renderTable();
+        }
+
+        loadSeller();
+        loadPositions();
+    </script>
+</body>
+</html>

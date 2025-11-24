@@ -8,7 +8,7 @@ from sources.parsers.rrr.steering_rack_parser import RRRSteeringRackParser
 from sources.database.repository import ProductRepository
 from sources.database.config import get_database_url
 from sources.utils.logger import setup_logger
-from sources.compare.compare_utils import compare_products_with_catalog
+from sources.compare.compare_utils import compare_all_and_save
 
 # Настройка логирования
 logger = setup_logger("main")
@@ -168,8 +168,7 @@ def main():
     #         print(f"Subject: {email.subject}")
     #         print(f"\n{email.body}")
 
-    df = compare_products_with_catalog(table='eur', price_delta_perc=10.0)
-    df.to_csv('compare_eur.csv', index=False)
+    compare_all_and_save()
 
 
 if __name__ == "__main__":

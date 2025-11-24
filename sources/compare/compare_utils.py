@@ -4,7 +4,7 @@ Utilities for comparing product prices with catalogs
 import os
 import pandas as pd
 from typing import Optional, List, Dict, Any
-from sources.database.repository import ProductRepository
+from sources.database.repository import ProductRepository, CompareRepository
 from sources.database.config import get_database_url
 from sources.classes.product import Product
 from sources.utils.logger import get_logger
@@ -235,3 +235,75 @@ def _classify_price(
         threshold = catalog_price_eur
 
     return 'OK' if price <= threshold else 'HIGH'
+
+
+def compare_all_and_save(
+    price_delta_perc: float = 1.1,
+    clear_before: bool = True
+) -> Dict[str, Any]:
+    """
+    Compare products with both EUR and GUR catalogs and save results to database.
+
+    Args:
+        price_delta_perc: Multiplier for allowed price difference (e.g., 1.1 for +10%)
+        clear_before: Whether to clear the compare table before saving new results
+
+    Returns:
+        Dictionary with statistics about the comparison
+    """
+    database_url = get_database_url()
+    if not database_url:
+        raise ValueError("DATABASE_URL not found in environment variables")
+
+    compare_repo = CompareRepository(database_url)
+    compare_repo.create_tables()
+
+    # Clear table if requested
+    if clear_before:
+        compare_repo.clear_table()
+
+    results = {
+        'eur': {'matches': 0, 'saved': 0, 'error': None},
+        'gur': {'matches': 0, 'saved': 0, 'error': None},
+    }
+
+    # Compare with EUR catalog
+    try:
+        eur_df = compare_products_with_catalog('eur', price_delta_perc)
+        if not eur_df.empty:
+            results['eur']['matches'] = len(eur_df)
+            # Replace NaN with None for JSON compatibility
+            eur_df = eur_df.where(pd.notnull(eur_df), None)
+            eur_records = eur_df.to_dict('records')
+            results['eur']['saved'] = compare_repo.save_results(eur_records, 'eur')
+    except FileNotFoundError as e:
+        logger.warning(f"EUR catalog not found: {e}")
+        results['eur']['error'] = str(e)
+    except Exception as e:
+        logger.error(f"Error comparing with EUR catalog: {e}")
+        results['eur']['error'] = str(e)
+
+    # Compare with GUR catalog
+    try:
+        gur_df = compare_products_with_catalog('gur', price_delta_perc)
+        if not gur_df.empty:
+            results['gur']['matches'] = len(gur_df)
+            # Replace NaN with None for JSON compatibility
+            gur_df = gur_df.where(pd.notnull(gur_df), None)
+            gur_records = gur_df.to_dict('records')
+            results['gur']['saved'] = compare_repo.save_results(gur_records, 'gur')
+    except FileNotFoundError as e:
+        logger.warning(f"GUR catalog not found: {e}")
+        results['gur']['error'] = str(e)
+    except Exception as e:
+        logger.error(f"Error comparing with GUR catalog: {e}")
+        results['gur']['error'] = str(e)
+
+    # Get final stats
+    stats = compare_repo.get_stats()
+    results['stats'] = stats
+
+    logger.info(f"Comparison complete: EUR={results['eur']['saved']}, GUR={results['gur']['saved']} saved")
+    logger.info(f"Stats: {stats}")
+
+    return results

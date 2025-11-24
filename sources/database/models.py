@@ -194,6 +194,78 @@ class SellerModel(Base):
         return f"SellerModel(email={self.email}, name={self.name})"
 
 
+class CompareResultModel(Base):
+    """
+    SQLAlchemy модель для таблицы compare
+
+    Хранит результаты сравнения продуктов с каталогами (eur/gur)
+    """
+    __tablename__ = 'compare'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Источник каталога
+    catalog = Column(String(10), nullable=False)  # 'eur' or 'gur'
+
+    # Данные из БД продуктов
+    db_part_id = Column(String(50), nullable=False)
+    db_code = Column(String(50), nullable=True)
+    db_price = Column(Numeric(10, 2), nullable=True)
+    db_url = Column(Text, nullable=True)
+    db_source_site = Column(String(50), nullable=True)
+    db_category = Column(String(100), nullable=True)
+    db_oem_code = Column(String(100), nullable=True)
+    db_other_codes = Column(Text, nullable=True)
+    db_manufacturer_code = Column(String(100), nullable=True)
+
+    # Данные из каталога
+    catalog_oes_numbers = Column(Text, nullable=True)
+    catalog_price_eur = Column(Numeric(10, 2), nullable=True)
+    catalog_segments_names = Column(String(255), nullable=True)
+    catalog_data = Column(JSONB, nullable=True)  # Полные данные строки каталога
+
+    # Результат сравнения
+    matched_by = Column(String(50), nullable=True)  # oem_code, manufacturer_code, other_codes
+    matched_value = Column(String(100), nullable=True)
+    price_classification = Column(String(20), nullable=True)  # OK, HIGH, NA
+
+    # Метаданные
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    __table_args__ = (
+        Index('idx_compare_catalog', 'catalog'),
+        Index('idx_compare_db_part_id', 'db_part_id'),
+        Index('idx_compare_price_classification', 'price_classification'),
+        Index('idx_compare_created_at', 'created_at'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'catalog': self.catalog,
+            'db_part_id': self.db_part_id,
+            'db_code': self.db_code,
+            'db_price': float(self.db_price) if self.db_price else None,
+            'db_url': self.db_url,
+            'db_source_site': self.db_source_site,
+            'db_category': self.db_category,
+            'db_oem_code': self.db_oem_code,
+            'db_other_codes': self.db_other_codes,
+            'db_manufacturer_code': self.db_manufacturer_code,
+            'catalog_oes_numbers': self.catalog_oes_numbers,
+            'catalog_price_eur': float(self.catalog_price_eur) if self.catalog_price_eur else None,
+            'catalog_segments_names': self.catalog_segments_names,
+            'catalog_data': self.catalog_data,
+            'matched_by': self.matched_by,
+            'matched_value': self.matched_value,
+            'price_classification': self.price_classification,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+    def __repr__(self) -> str:
+        return f"CompareResultModel(catalog={self.catalog}, db_part_id={self.db_part_id}, classification={self.price_classification})"
+
+
 class EmailLogModel(Base):
     """
     SQLAlchemy модель для таблицы email_logs
