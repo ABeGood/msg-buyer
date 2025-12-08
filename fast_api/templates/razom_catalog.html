@@ -671,7 +671,7 @@
                             <div class="catalog-info">
                                 <div class="article-info">
                                     <span class="article-number">${item.catalog_data.article || '-'}</span>
-                                    ${item.catalog_data.brand ? `<span class="brand-name">${item.catalog_data.brand}</span>` : ''}
+                                    ${item.catalog_data.brand ? `<span class="brand-name">${typeof item.catalog_data.brand === 'object' ? item.catalog_data.brand.name : (typeof item.catalog_data.brand === 'string' && item.catalog_data.brand.startsWith('{') ? JSON.parse(item.catalog_data.brand.replace(/'/g, '"')).name : item.catalog_data.brand)}</span>` : ''}
                                 </div>
                                 <span class="segment-badge segment-${item.catalog_segments_names || 'STANDARD'}">${item.catalog_segments_names || 'STANDARD'}</span>
                             </div>
