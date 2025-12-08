@@ -3,8 +3,8 @@ Utilities for comparing product prices with catalogs
 """
 import os
 import pandas as pd
-from typing import Optional, List, Dict, Any
-from sources.database.repository import ProductRepository, CompareRepository
+from typing import Optional, List, Dict, Any, Tuple
+from sources.database.repository import ProductRepository, CompareRepository, CatalogMatchRepository
 from sources.database.config import get_database_url
 from sources.classes.product import Product
 from sources.utils.logger import get_logger
@@ -304,6 +304,295 @@ def compare_all_and_save(
     results['stats'] = stats
 
     logger.info(f"Comparison complete: EUR={results['eur']['saved']}, GUR={results['gur']['saved']} saved")
+    logger.info(f"Stats: {stats}")
+
+    return results
+
+
+def compare_catalog_with_products(
+    table: str,
+    price_delta_perc: float
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Compare catalog items with products from DB (INVERTED RELATIONSHIP)
+
+    Each catalog row gets a list of matched products.
+    Products without catalog matches are returned separately.
+
+    Args:
+        table: Catalog table name ('gur' or 'eur')
+        price_delta_perc: Multiplier for allowed price difference (e.g., 1.1 for +10%)
+
+    Returns:
+        Tuple of (catalog_matches_df, unmatched_products_df)
+    """
+    if table not in ('gur', 'eur'):
+        raise ValueError(f"table must be 'gur' or 'eur', got: {table}")
+
+    # Load catalog
+    csv_path = os.path.join(CSV_DIR, f"{table}.csv")
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"Catalog file not found: {csv_path}")
+
+    catalog_df = pd.read_csv(csv_path)
+    logger.info(f"Loaded catalog {table}.csv: {len(catalog_df)} rows")
+
+    # Get products
+    database_url = get_database_url()
+    if not database_url:
+        raise ValueError("DATABASE_URL not found")
+
+    repo = ProductRepository(database_url)
+    products = repo.get_all()
+    logger.info(f"Got {len(products)} products from DB")
+
+    if not products:
+        logger.warning("No products in DB")
+        return pd.DataFrame(), pd.DataFrame()
+
+    # Track which products matched
+    matched_product_ids = set()
+
+    # Build catalog results
+    catalog_results = []
+
+    for idx, catalog_row in catalog_df.iterrows():
+        oes_numbers = catalog_row.get('oes_numbers', '')
+        if not oes_numbers:
+            continue
+
+        # Find all products matching this catalog row
+        matched_products = []
+
+        for product in products:
+            item_desc = product.item_description or {}
+            oem_code = item_desc.get('oem_code', '')
+            other_codes = item_desc.get('other_codes', [])
+            manufacturer_code = item_desc.get('manufacturer_code', '')
+
+            # Normalize other_codes
+            if isinstance(other_codes, str):
+                other_codes = [other_codes] if other_codes else []
+            elif not isinstance(other_codes, list):
+                other_codes = []
+
+            # Check if any product code matches this catalog row
+            match_info = _check_product_matches_catalog_row(
+                oes_numbers=oes_numbers,
+                oem_code=oem_code,
+                manufacturer_code=manufacturer_code,
+                other_codes=other_codes
+            )
+
+            if match_info['matched']:
+                # Classify price
+                price_class = _classify_price(
+                    price=product.price,
+                    catalog_price_eur=catalog_row.get('price_eur'),
+                    segments_names=catalog_row.get('segments_names'),
+                    price_delta_perc=price_delta_perc
+                )
+
+                matched_products.append({
+                    'part_id': product.part_id,
+                    'code': product.code,
+                    'price': product.price,
+                    'url': product.url,
+                    'matched_by': match_info['matched_by'],
+                    'matched_value': match_info['matched_value'],
+                    'price_classification': price_class,
+                    'product_data': product.to_dict()
+                })
+
+                matched_product_ids.add(product.part_id)
+
+        # Build catalog result row (only if has matches)
+        if matched_products:
+            # Calculate aggregates
+            prices = [p['price'] for p in matched_products if p['price'] is not None]
+            ok_count = sum(1 for p in matched_products if p['price_classification'] == 'OK')
+            high_count = sum(1 for p in matched_products if p['price_classification'] == 'HIGH')
+
+            catalog_result = {
+                'catalog': table,
+                'catalog_oes_numbers': oes_numbers,
+                'catalog_price_eur': catalog_row.get('price_eur'),
+                'catalog_price_usd': catalog_row.get('price_usd'),
+                'catalog_segments_names': catalog_row.get('segments_names'),
+
+                # Match statistics
+                'matched_products_count': len(matched_products),
+                'matched_products_ids': [p['part_id'] for p in matched_products],
+
+                # Price statistics
+                'price_match_ok_count': ok_count,
+                'price_match_high_count': high_count,
+                'avg_db_price': sum(prices) / len(prices) if prices else None,
+                'min_db_price': min(prices) if prices else None,
+                'max_db_price': max(prices) if prices else None,
+
+                # Full data
+                'catalog_data': catalog_row.to_dict(),
+                'matched_products': matched_products
+            }
+
+            catalog_results.append(catalog_result)
+
+    # Build unmatched products
+    unmatched_results = []
+    for product in products:
+        if product.part_id not in matched_product_ids:
+            item_desc = product.item_description or {}
+            oem_code = item_desc.get('oem_code', '')
+            other_codes = item_desc.get('other_codes', [])
+            manufacturer_code = item_desc.get('manufacturer_code', '')
+
+            if isinstance(other_codes, str):
+                other_codes = [other_codes] if other_codes else []
+            elif not isinstance(other_codes, list):
+                other_codes = []
+
+            unmatched_results.append({
+                'catalog': table,
+                'product_part_id': product.part_id,
+                'product_code': product.code,
+                'product_price': product.price,
+                'searched_codes': {
+                    'oem_code': oem_code,
+                    'manufacturer_code': manufacturer_code,
+                    'other_codes': other_codes
+                },
+                'product_data': product.to_dict()
+            })
+
+    catalog_df_result = pd.DataFrame(catalog_results)
+    unmatched_df_result = pd.DataFrame(unmatched_results)
+
+    logger.info(f"Catalog items with matches: {len(catalog_df_result)}")
+    logger.info(f"Unmatched products: {len(unmatched_df_result)}")
+
+    return catalog_df_result, unmatched_df_result
+
+
+def _check_product_matches_catalog_row(
+    oes_numbers: str,
+    oem_code: str,
+    manufacturer_code: str,
+    other_codes: List[str]
+) -> Dict[str, Any]:
+    """
+    Check if product codes match catalog row oes_numbers
+
+    Args:
+        oes_numbers: Pipe-separated codes from catalog
+        oem_code: Product OEM code
+        manufacturer_code: Product manufacturer code
+        other_codes: List of other product codes
+
+    Returns:
+        Dict with matched status and match info
+    """
+    def code_in_oes(code: str, oes_numbers: str) -> bool:
+        if not code or not oes_numbers:
+            return False
+        oes_list = [x.strip().upper() for x in str(oes_numbers).split(' | ')]
+        return code.strip().upper() in oes_list
+
+    # Try oem_code first
+    if oem_code and code_in_oes(oem_code, oes_numbers):
+        return {'matched': True, 'matched_by': 'oem_code', 'matched_value': oem_code}
+
+    # Try manufacturer_code
+    if manufacturer_code and code_in_oes(manufacturer_code, oes_numbers):
+        return {'matched': True, 'matched_by': 'manufacturer_code', 'matched_value': manufacturer_code}
+
+    # Try other_codes
+    for code in other_codes:
+        if code and code_in_oes(code, oes_numbers):
+            return {'matched': True, 'matched_by': 'other_codes', 'matched_value': code}
+
+    return {'matched': False, 'matched_by': None, 'matched_value': None}
+
+
+def compare_all_inverted_and_save(
+    price_delta_perc: float = 1.1,
+    clear_before: bool = True
+) -> Dict[str, Any]:
+    """
+    Compare catalogs with products (inverted relationship) and save to database.
+
+    Saves to catalog_matches and unmatched_products tables.
+
+    Args:
+        price_delta_perc: Multiplier for allowed price difference (e.g., 1.1 for +10%)
+        clear_before: Whether to clear tables before saving
+
+    Returns:
+        Dictionary with statistics
+    """
+    database_url = get_database_url()
+    if not database_url:
+        raise ValueError("DATABASE_URL not found in environment variables")
+
+    catalog_repo = CatalogMatchRepository(database_url)
+    catalog_repo.create_tables()
+
+    # Clear tables if requested
+    if clear_before:
+        catalog_repo.clear_tables()
+
+    results = {
+        'eur': {'catalog_matches': 0, 'unmatched_products': 0, 'error': None},
+        'gur': {'catalog_matches': 0, 'unmatched_products': 0, 'error': None},
+    }
+
+    # Compare with EUR catalog
+    try:
+        eur_matches_df, eur_unmatched_df = compare_catalog_with_products('eur', price_delta_perc)
+
+        if not eur_matches_df.empty:
+            eur_matches_df = eur_matches_df.where(pd.notnull(eur_matches_df), None)
+            eur_matches_records = eur_matches_df.to_dict('records')
+            results['eur']['catalog_matches'] = catalog_repo.save_catalog_matches(eur_matches_records, 'eur')
+
+        if not eur_unmatched_df.empty:
+            eur_unmatched_df = eur_unmatched_df.where(pd.notnull(eur_unmatched_df), None)
+            eur_unmatched_records = eur_unmatched_df.to_dict('records')
+            results['eur']['unmatched_products'] = catalog_repo.save_unmatched_products(eur_unmatched_records, 'eur')
+
+    except FileNotFoundError as e:
+        logger.warning(f"EUR catalog not found: {e}")
+        results['eur']['error'] = str(e)
+    except Exception as e:
+        logger.error(f"Error comparing with EUR catalog: {e}", exc_info=True)
+        results['eur']['error'] = str(e)
+
+    # Compare with GUR catalog
+    try:
+        gur_matches_df, gur_unmatched_df = compare_catalog_with_products('gur', price_delta_perc)
+
+        if not gur_matches_df.empty:
+            gur_matches_df = gur_matches_df.where(pd.notnull(gur_matches_df), None)
+            gur_matches_records = gur_matches_df.to_dict('records')
+            results['gur']['catalog_matches'] = catalog_repo.save_catalog_matches(gur_matches_records, 'gur')
+
+        if not gur_unmatched_df.empty:
+            gur_unmatched_df = gur_unmatched_df.where(pd.notnull(gur_unmatched_df), None)
+            gur_unmatched_records = gur_unmatched_df.to_dict('records')
+            results['gur']['unmatched_products'] = catalog_repo.save_unmatched_products(gur_unmatched_records, 'gur')
+
+    except FileNotFoundError as e:
+        logger.warning(f"GUR catalog not found: {e}")
+        results['gur']['error'] = str(e)
+    except Exception as e:
+        logger.error(f"Error comparing with GUR catalog: {e}", exc_info=True)
+        results['gur']['error'] = str(e)
+
+    # Get final stats
+    stats = catalog_repo.get_stats()
+    results['stats'] = stats
+
+    logger.info(f"Comparison complete: EUR={results['eur']}, GUR={results['gur']}")
     logger.info(f"Stats: {stats}")
 
     return results

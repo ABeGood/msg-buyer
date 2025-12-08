@@ -494,7 +494,7 @@ if __name__ == "__main__":
         access_token = get_access_token()
         print(f"Access token: {access_token}")
 
-        segment = 'gur'  # gur or eur
+        segment = 'eur'  # gur or eur
         catalog_data = get_catalog_full(bearer_token=access_token, segment=segment)
         
         if segment == 'eur':
@@ -503,7 +503,10 @@ if __name__ == "__main__":
             filename = 'data/stocklists/full_gur_catalog.json'
         else:
             raise ValueError(f"Unsupported segment: {segment}")
-        
+
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+
         with open(filename, 'w') as catalog_file:
             json.dump(catalog_data, catalog_file)
 

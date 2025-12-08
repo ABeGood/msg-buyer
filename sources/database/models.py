@@ -507,3 +507,123 @@ class ConversationClassificationModel(Base):
     def __repr__(self) -> str:
         return f"ConversationClassificationModel(conversation_id={self.conversation_id}, status={self.status})"
 
+
+class CatalogMatchModel(Base):
+    """
+    SQLAlchemy модель для таблицы catalog_matches
+
+    Хранит каталожные позиции с привязанными к ним продуктами из БД.
+    Одна строка каталога может иметь несколько совпадений с продуктами.
+    """
+    __tablename__ = 'catalog_matches'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Источник каталога
+    catalog = Column(String(10), nullable=False)  # 'eur' or 'gur'
+
+    # Ключевые поля из каталога (для быстрого поиска)
+    catalog_oes_numbers = Column(Text, nullable=False)
+    catalog_price_eur = Column(Numeric(10, 2), nullable=True)
+    catalog_price_usd = Column(Numeric(10, 2), nullable=True)
+    catalog_segments_names = Column(String(255), nullable=True)
+
+    # Статистика совпадений
+    matched_products_count = Column(Integer, default=0, nullable=False)
+    matched_products_ids = Column(JSONB, nullable=True)  # Array of part_ids
+
+    # Статистика по ценам
+    price_match_ok_count = Column(Integer, default=0, nullable=False)
+    price_match_high_count = Column(Integer, default=0, nullable=False)
+    avg_db_price = Column(Numeric(10, 2), nullable=True)
+    min_db_price = Column(Numeric(10, 2), nullable=True)
+    max_db_price = Column(Numeric(10, 2), nullable=True)
+
+    # Полные данные (JSONB)
+    catalog_data = Column(JSONB, nullable=False)  # All catalog row columns
+    matched_products = Column(JSONB, nullable=False)  # Array of matched products with classifications
+
+    # Метаданные
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    __table_args__ = (
+        Index('idx_catalog_matches_catalog', 'catalog'),
+        Index('idx_catalog_matches_oes_numbers', 'catalog_oes_numbers'),
+        Index('idx_catalog_matches_segments', 'catalog_segments_names'),
+        Index('idx_catalog_matches_count', 'matched_products_count'),
+        Index('idx_catalog_matches_created_at', 'created_at'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'catalog': self.catalog,
+            'catalog_oes_numbers': self.catalog_oes_numbers,
+            'catalog_price_eur': float(self.catalog_price_eur) if self.catalog_price_eur else None,
+            'catalog_price_usd': float(self.catalog_price_usd) if self.catalog_price_usd else None,
+            'catalog_segments_names': self.catalog_segments_names,
+            'matched_products_count': self.matched_products_count,
+            'matched_products_ids': self.matched_products_ids or [],
+            'price_match_ok_count': self.price_match_ok_count,
+            'price_match_high_count': self.price_match_high_count,
+            'avg_db_price': float(self.avg_db_price) if self.avg_db_price else None,
+            'min_db_price': float(self.min_db_price) if self.min_db_price else None,
+            'max_db_price': float(self.max_db_price) if self.max_db_price else None,
+            'catalog_data': self.catalog_data or {},
+            'matched_products': self.matched_products or [],
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+    def __repr__(self) -> str:
+        return f"CatalogMatchModel(catalog={self.catalog}, oes={self.catalog_oes_numbers}, matches={self.matched_products_count})"
+
+
+class UnmatchedProductModel(Base):
+    """
+    SQLAlchemy модель для таблицы unmatched_products
+
+    Хранит продукты из БД, которые не имеют совпадений в каталоге.
+    """
+    __tablename__ = 'unmatched_products'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # В каком каталоге искали
+    catalog = Column(String(10), nullable=False)  # 'eur' or 'gur'
+
+    # Основная информация о продукте
+    product_part_id = Column(String(100), nullable=False)
+    product_code = Column(String(100), nullable=True)
+    product_price = Column(Numeric(10, 2), nullable=True)
+
+    # Коды, по которым пытались найти
+    searched_codes = Column(JSONB, nullable=False)  # {oem_code, manufacturer_code, other_codes}
+
+    # Полные данные продукта
+    product_data = Column(JSONB, nullable=False)
+
+    # Метаданные
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    __table_args__ = (
+        Index('idx_unmatched_catalog', 'catalog'),
+        Index('idx_unmatched_part_id', 'product_part_id'),
+        Index('idx_unmatched_price', 'product_price'),
+        Index('idx_unmatched_created_at', 'created_at'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'catalog': self.catalog,
+            'product_part_id': self.product_part_id,
+            'product_code': self.product_code,
+            'product_price': float(self.product_price) if self.product_price else None,
+            'searched_codes': self.searched_codes or {},
+            'product_data': self.product_data or {},
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+    def __repr__(self) -> str:
+        return f"UnmatchedProductModel(catalog={self.catalog}, part_id={self.product_part_id})"
+

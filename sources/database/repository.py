@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import SQLAlchemyError
-from sources.database.models import ProductModel, SellerModel, UserModel, CompareResultModel, ConversationModel, MessageModel, ConversationClassificationModel, Base
+from sources.database.models import ProductModel, SellerModel, UserModel, CompareResultModel, ConversationModel, MessageModel, ConversationClassificationModel, CatalogMatchModel, UnmatchedProductModel, Base
 from sources.classes.product import Product
 from sources.utils.logger import get_logger
 
@@ -921,6 +921,224 @@ class CompareRepository:
                 func.count(CompareResultModel.id)
             ).group_by(CompareResultModel.price_classification).all()
             stats['by_classification'] = {cls or 'NA': cnt for cls, cnt in class_counts}
+
+            return stats
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при получении статистики: {e}")
+            return {}
+        finally:
+            session.close()
+
+
+class CatalogMatchRepository:
+    """
+    Репозиторий для работы с catalog_matches и unmatched_products
+
+    Хранит результаты сравнения в формате: каталог → список совпавших продуктов
+    """
+
+    def __init__(self, database_url: str):
+        self.engine = create_engine(database_url, echo=False)
+        self.SessionLocal = sessionmaker(bind=self.engine, autocommit=False, autoflush=False)
+
+    def create_tables(self):
+        """Создание таблиц в БД"""
+        Base.metadata.create_all(bind=self.engine)
+        logger.info("Таблицы catalog_matches и unmatched_products созданы/проверены")
+
+    def clear_tables(self, catalog: Optional[str] = None) -> bool:
+        """
+        Очистка таблиц catalog_matches и unmatched_products
+
+        Args:
+            catalog: Если указан, удаляет только данные для этого каталога ('eur' или 'gur')
+
+        Returns:
+            True если успешно
+        """
+        session = self.SessionLocal()
+        try:
+            if catalog:
+                session.query(CatalogMatchModel).filter_by(catalog=catalog).delete()
+                session.query(UnmatchedProductModel).filter_by(catalog=catalog).delete()
+                logger.info(f"Очищены данные для каталога {catalog}")
+            else:
+                session.query(CatalogMatchModel).delete()
+                session.query(UnmatchedProductModel).delete()
+                logger.info("Очищены все данные из catalog_matches и unmatched_products")
+
+            session.commit()
+            return True
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Ошибка при очистке таблиц: {e}")
+            return False
+        finally:
+            session.close()
+
+    def save_catalog_matches(self, results: List[Dict[str, Any]], catalog: str) -> int:
+        """
+        Сохранение совпавших каталожных позиций
+
+        Args:
+            results: Список словарей с результатами (catalog_oes_numbers, matched_products, etc.)
+            catalog: Название каталога ('eur' или 'gur')
+
+        Returns:
+            Количество сохраненных записей
+        """
+        session = self.SessionLocal()
+        saved_count = 0
+        try:
+            for row in results:
+                catalog_match = CatalogMatchModel(
+                    catalog=catalog,
+                    catalog_oes_numbers=row.get('catalog_oes_numbers'),
+                    catalog_price_eur=row.get('catalog_price_eur'),
+                    catalog_price_usd=row.get('catalog_price_usd'),
+                    catalog_segments_names=row.get('catalog_segments_names'),
+                    matched_products_count=row.get('matched_products_count', 0),
+                    matched_products_ids=row.get('matched_products_ids', []),
+                    price_match_ok_count=row.get('price_match_ok_count', 0),
+                    price_match_high_count=row.get('price_match_high_count', 0),
+                    avg_db_price=row.get('avg_db_price'),
+                    min_db_price=row.get('min_db_price'),
+                    max_db_price=row.get('max_db_price'),
+                    catalog_data=row.get('catalog_data', {}),
+                    matched_products=row.get('matched_products', [])
+                )
+                session.add(catalog_match)
+                saved_count += 1
+
+            session.commit()
+            logger.info(f"Сохранено {saved_count} catalog_matches для каталога {catalog}")
+            return saved_count
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Ошибка при сохранении catalog_matches: {e}")
+            return 0
+        finally:
+            session.close()
+
+    def save_unmatched_products(self, results: List[Dict[str, Any]], catalog: str) -> int:
+        """
+        Сохранение несовпавших продуктов
+
+        Args:
+            results: Список словарей с продуктами (product_part_id, searched_codes, etc.)
+            catalog: Название каталога ('eur' или 'gur')
+
+        Returns:
+            Количество сохраненных записей
+        """
+        session = self.SessionLocal()
+        saved_count = 0
+        try:
+            for row in results:
+                unmatched = UnmatchedProductModel(
+                    catalog=catalog,
+                    product_part_id=row.get('product_part_id'),
+                    product_code=row.get('product_code'),
+                    product_price=row.get('product_price'),
+                    searched_codes=row.get('searched_codes', {}),
+                    product_data=row.get('product_data', {})
+                )
+                session.add(unmatched)
+                saved_count += 1
+
+            session.commit()
+            logger.info(f"Сохранено {saved_count} unmatched_products для каталога {catalog}")
+            return saved_count
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Ошибка при сохранении unmatched_products: {e}")
+            return 0
+        finally:
+            session.close()
+
+    def get_catalog_matches(self, catalog: Optional[str] = None, limit: Optional[int] = None) -> List[CatalogMatchModel]:
+        """Получение всех catalog_matches"""
+        session = self.SessionLocal()
+        try:
+            query = session.query(CatalogMatchModel)
+            if catalog:
+                query = query.filter_by(catalog=catalog)
+            if limit:
+                query = query.limit(limit)
+            return query.all()
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при получении catalog_matches: {e}")
+            return []
+        finally:
+            session.close()
+
+    def get_unmatched_products(self, catalog: Optional[str] = None, limit: Optional[int] = None) -> List[UnmatchedProductModel]:
+        """Получение всех unmatched_products"""
+        session = self.SessionLocal()
+        try:
+            query = session.query(UnmatchedProductModel)
+            if catalog:
+                query = query.filter_by(catalog=catalog)
+            if limit:
+                query = query.limit(limit)
+            return query.all()
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при получении unmatched_products: {e}")
+            return []
+        finally:
+            session.close()
+
+    def get_stats(self, catalog: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Получение статистики по catalog_matches и unmatched_products
+
+        Args:
+            catalog: Фильтр по каталогу (опционально)
+
+        Returns:
+            Словарь со статистикой
+        """
+        session = self.SessionLocal()
+        try:
+            from sqlalchemy import func
+
+            stats = {}
+
+            # Catalog matches stats
+            matches_query = session.query(func.count(CatalogMatchModel.id))
+            if catalog:
+                matches_query = matches_query.filter_by(catalog=catalog)
+            stats['catalog_matches_count'] = matches_query.scalar()
+
+            # Total matched products count
+            matched_products_query = session.query(func.sum(CatalogMatchModel.matched_products_count))
+            if catalog:
+                matched_products_query = matched_products_query.filter_by(catalog=catalog)
+            stats['total_matched_products'] = matched_products_query.scalar() or 0
+
+            # Unmatched products stats
+            unmatched_query = session.query(func.count(UnmatchedProductModel.id))
+            if catalog:
+                unmatched_query = unmatched_query.filter_by(catalog=catalog)
+            stats['unmatched_products_count'] = unmatched_query.scalar()
+
+            # Price classification breakdown
+            ok_count_query = session.query(func.sum(CatalogMatchModel.price_match_ok_count))
+            high_count_query = session.query(func.sum(CatalogMatchModel.price_match_high_count))
+            if catalog:
+                ok_count_query = ok_count_query.filter_by(catalog=catalog)
+                high_count_query = high_count_query.filter_by(catalog=catalog)
+
+            stats['price_ok_count'] = ok_count_query.scalar() or 0
+            stats['price_high_count'] = high_count_query.scalar() or 0
+
+            # By catalog breakdown (if no specific catalog requested)
+            if not catalog:
+                by_catalog = {}
+                catalogs = session.query(CatalogMatchModel.catalog).distinct().all()
+                for (cat,) in catalogs:
+                    by_catalog[cat] = self.get_stats(catalog=cat)
+                stats['by_catalog'] = by_catalog
 
             return stats
         except SQLAlchemyError as e:

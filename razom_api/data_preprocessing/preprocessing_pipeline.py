@@ -195,8 +195,8 @@ def _clean_data(df: pd.DataFrame, catalog_segment_name: str, save_intermediate: 
     columns_to_drop = [
         'Unnamed: 0.1',  # Index from CSV (if exists)
         'Unnamed: 0',    # Index from CSV
-        'article',        # Original article
-        'brand',          # Original brand column
+        # 'article',        # Original article
+        # 'brand',          # Original brand column
         'applicability_cars',  # Original JSON data (already expanded)
         'product_segments',    # Original JSON data (already expanded)
         'oes',                 # Original JSON data (already expanded)
