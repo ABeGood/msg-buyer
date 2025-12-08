@@ -238,13 +238,13 @@ async def auth_callback_page(request: Request):
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(request: Request):
     """Dashboard page"""
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    return templates.TemplateResponse("razom_catalog.html", {"request": request})
 
 
 @app.get("/dashboard-sellers", response_class=HTMLResponse)
 async def dashboard_sellers_page(request: Request):
     """Dashboard sellers page"""
-    return templates.TemplateResponse("dashboard_sellers.html", {"request": request})
+    return templates.TemplateResponse("sellers.html", {"request": request})
 
 
 @app.get("/seller/{email}", response_class=HTMLResponse)

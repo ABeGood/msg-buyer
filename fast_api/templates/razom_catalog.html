@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Catalog Matches - MSG Buyer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .user-info img {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: 2px solid rgba(255,255,255,0.5);
+        }
+
+        .user-info span {
+            font-size: 14px;
+        }
+
+        .logout-btn {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+
+        .logout-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 16px;
+        }
+
+        .nav-links a {
+            color: white;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.1);
+            transition: background 0.2s;
+        }
+
+        .nav-links a:hover, .nav-links a.active {
+            background: rgba(255,255,255,0.25);
+        }
+
+        /* Main content */
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        /* Stats */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        .stat-card h3 {
+            color: #666;
+            font-size: 12px;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+
+        .stat-card .value {
+            font-size: 28px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        /* Filters */
+        .filters {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            margin-bottom: 24px;
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .filter-group label {
+            font-size: 12px;
+            color: #666;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .filter-group select, .filter-group input {
+            padding: 10px 16px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            min-width: 150px;
+        }
+
+        .filter-group select:focus, .filter-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        /* Catalog items */
+        .catalog-list {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            overflow: hidden;
+        }
+
+        .catalog-item {
+            border-bottom: 1px solid #eee;
+            transition: background 0.2s;
+        }
+
+        .catalog-item:last-child {
+            border-bottom: none;
+        }
+
+        .catalog-header {
+            padding: 16px 20px;
+            cursor: pointer;
+            display: grid;
+            grid-template-columns: 40px 1fr 120px 120px 100px 80px;
+            gap: 16px;
+            align-items: center;
+        }
+
+        .catalog-header:hover {
+            background: #f8f9fa;
+        }
+
+        .expand-icon {
+            font-size: 20px;
+            transition: transform 0.2s;
+            color: #666;
+        }
+
+        .catalog-item.expanded .expand-icon {
+            transform: rotate(90deg);
+        }
+
+        .catalog-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .article-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .article-number {
+            font-weight: 600;
+            color: #333;
+            font-size: 14px;
+        }
+
+        .brand-name {
+            font-size: 12px;
+            color: #666;
+            background: #f0f0f0;
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        .segment-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            width: fit-content;
+        }
+
+        .segment-TOP {
+            background: #ffd700;
+            color: #333;
+        }
+
+        .segment-STANDARD {
+            background: #e3e3e3;
+            color: #666;
+        }
+
+        .catalog-price {
+            font-weight: 600;
+            color: #667eea;
+            font-size: 14px;
+        }
+
+        .match-count {
+            text-align: center;
+            font-weight: 600;
+            color: #28a745;
+        }
+
+        .price-stats {
+            display: flex;
+            gap: 8px;
+            font-size: 12px;
+        }
+
+        .stat-ok {
+            color: #28a745;
+            font-weight: 600;
+        }
+
+        .stat-high {
+            color: #dc3545;
+            font-weight: 600;
+        }
+
+        .catalog-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            text-align: center;
+        }
+
+        .catalog-eur {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .catalog-gur {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+
+        /* Products list (expandable) */
+        .products-container {
+            display: none;
+            background: #f8f9fa;
+            padding: 20px;
+        }
+
+        .catalog-item.expanded .products-container {
+            display: block;
+        }
+
+        .products-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .product-card {
+            background: white;
+            border-radius: 8px;
+            padding: 16px;
+            display: grid;
+            grid-template-columns: 80px 1fr 120px 100px 150px;
+            gap: 16px;
+            align-items: center;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+        }
+
+        .product-image {
+            width: 80px;
+            height: 80px;
+            object-fit: cover;
+            border-radius: 6px;
+            background: #eee;
+        }
+
+        .product-info {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .product-code {
+            font-family: monospace;
+            background: #f0f0f0;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            display: inline-block;
+            width: fit-content;
+        }
+
+        .product-matched {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .product-price {
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .price-ok {
+            color: #28a745;
+        }
+
+        .price-high {
+            color: #dc3545;
+        }
+
+        .price-na {
+            color: #999;
+        }
+
+        .price-classification {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            text-align: center;
+        }
+
+        .classification-OK {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .classification-HIGH {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .classification-NA {
+            background: #e2e3e5;
+            color: #6c757d;
+        }
+
+        .product-seller {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .product-link {
+            color: #667eea;
+            text-decoration: none;
+            font-size: 13px;
+        }
+
+        .product-link:hover {
+            text-decoration: underline;
+        }
+
+        /* Loading */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+
+        .empty-state .icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        /* Pagination */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            padding: 20px;
+        }
+
+        .pagination button {
+            padding: 8px 16px;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .pagination button:hover:not(:disabled) {
+            background: #f5f5f5;
+        }
+
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .pagination span {
+            color: #666;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <h1>🚗 MSG Buyer</h1>
+        <nav class="nav-links">
+            <a href="/dashboard">Products</a>
+            <a href="/dashboard-sellers">Sellers</a>
+            <a href="/conversations">Conversations</a>
+            <a href="/razom-catalog" class="active">Catalog Matches</a>
+        </nav>
+        <div class="user-info">
+            <img id="user-avatar" src="" alt="Avatar">
+            <span id="user-name"></span>
+            <button class="logout-btn" onclick="logout()">Logout</button>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="stats" id="stats-container">
+            <div class="stat-card">
+                <h3>Total Catalog Items</h3>
+                <div class="value" id="total-items">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Matched Products</h3>
+                <div class="value" id="total-matched">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>OK Prices</h3>
+                <div class="value" id="ok-prices">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>High Prices</h3>
+                <div class="value" id="high-prices">-</div>
+            </div>
+        </div>
+
+        <div class="filters">
+            <div class="filter-group">
+                <label>Catalog</label>
+                <select id="catalog-filter" onchange="applyFilters()">
+                    <option value="">All</option>
+                    <option value="eur,gur" selected>EUR + GUR</option>
+                    <option value="eur">EUR</option>
+                    <option value="gur">GUR</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Segment</label>
+                <select id="segment-filter" onchange="applyFilters()">
+                    <option value="">All</option>
+                    <option value="TOP">TOP</option>
+                    <option value="STANDARD">STANDARD</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Price Classification</label>
+                <select id="price-filter" onchange="applyFilters()">
+                    <option value="">All</option>
+                    <option value="OK">OK</option>
+                    <option value="HIGH">HIGH</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Search OES</label>
+                <input type="text" id="search-input" placeholder="Search OES numbers..." oninput="applyFilters()">
+            </div>
+        </div>
+
+        <div class="catalog-list" id="catalog-list">
+            <div class="loading">
+                <div class="spinner"></div>
+                Loading catalog matches...
+            </div>
+        </div>
+
+        <div class="pagination" id="pagination">
+            <button id="prev-btn" onclick="prevPage()" disabled>Previous</button>
+            <span id="page-info">Page 1</span>
+            <button id="next-btn" onclick="nextPage()">Next</button>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = '';
+        let allItems = [];
+        let currentPage = 1;
+        const pageSize = 50;
+
+        // Get token from localStorage
+        const token = localStorage.getItem('auth_token');
+        if (!token) {
+            window.location.href = '/login';
+        }
+
+        // Fetch user info
+        async function loadUser() {
+            try {
+                const res = await fetch('/auth/me', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!res.ok) throw new Error('Unauthorized');
+                const user = await res.json();
+                document.getElementById('user-name').textContent = user.name || user.email;
+                document.getElementById('user-avatar').src = user.picture || 'https://via.placeholder.com/36';
+            } catch (e) {
+                localStorage.removeItem('auth_token');
+                window.location.href = '/login';
+            }
+        }
+
+        // Fetch catalog stats
+        async function loadStats() {
+            try {
+                const res = await fetch('/api/catalog-stats', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!res.ok) throw new Error('Failed to load stats');
+                const stats = await res.json();
+
+                // Aggregate stats from both catalogs
+                const totalItems = stats.reduce((sum, s) => sum + s.total_catalog_items, 0);
+                const totalMatched = stats.reduce((sum, s) => sum + s.total_matched_products, 0);
+                const okPrices = stats.reduce((sum, s) => sum + s.total_ok_prices, 0);
+                const highPrices = stats.reduce((sum, s) => sum + s.total_high_prices, 0);
+
+                document.getElementById('total-items').textContent = totalItems.toLocaleString();
+                document.getElementById('total-matched').textContent = totalMatched.toLocaleString();
+                document.getElementById('ok-prices').textContent = okPrices.toLocaleString();
+                document.getElementById('high-prices').textContent = highPrices.toLocaleString();
+            } catch (e) {
+                console.error('Failed to load stats:', e);
+            }
+        }
+
+        // Fetch catalog matches
+        async function loadCatalogMatches() {
+            const catalog = document.getElementById('catalog-filter').value;
+            const segment = document.getElementById('segment-filter').value;
+            const priceClass = document.getElementById('price-filter').value;
+            const search = document.getElementById('search-input').value;
+
+            try {
+                let url = '/api/catalog-matches?';
+                const params = new URLSearchParams();
+                if (catalog) params.append('catalog', catalog);
+                if (segment) params.append('segment', segment);
+                if (priceClass) params.append('price_classification', priceClass);
+
+                const res = await fetch(url + params.toString(), {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (res.status === 401) {
+                    localStorage.removeItem('auth_token');
+                    window.location.href = '/login';
+                    return;
+                }
+                if (!res.ok) throw new Error('Failed to load');
+
+                const data = await res.json();
+                allItems = data.items;
+
+                // Apply search filter client-side
+                if (search) {
+                    allItems = allItems.filter(item =>
+                        item.catalog_oes_numbers.toLowerCase().includes(search.toLowerCase())
+                    );
+                }
+
+                renderCatalogList();
+            } catch (e) {
+                document.getElementById('catalog-list').innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">⚠️</div>
+                        <p>Failed to load catalog matches</p>
+                    </div>
+                `;
+            }
+        }
+
+        function renderCatalogList() {
+            const start = (currentPage - 1) * pageSize;
+            const end = start + pageSize;
+            const pageItems = allItems.slice(start, end);
+            const totalPages = Math.ceil(allItems.length / pageSize);
+
+            if (pageItems.length === 0) {
+                document.getElementById('catalog-list').innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">📦</div>
+                        <p>No catalog matches found</p>
+                    </div>
+                `;
+            } else {
+                document.getElementById('catalog-list').innerHTML = pageItems.map(item => `
+                    <div class="catalog-item" id="item-${item.id}">
+                        <div class="catalog-header" onclick="toggleItem(${item.id})">
+                            <div class="expand-icon">▶</div>
+                            <div class="catalog-info">
+                                <div class="article-info">
+                                    <span class="article-number">${item.catalog_data.article || '-'}</span>
+                                    ${item.catalog_data.brand ? `<span class="brand-name">${item.catalog_data.brand}</span>` : ''}
+                                </div>
+                                <span class="segment-badge segment-${item.catalog_segments_names || 'STANDARD'}">${item.catalog_segments_names || 'STANDARD'}</span>
+                            </div>
+                            <div class="catalog-price">
+                                €${item.catalog_price_eur ? item.catalog_price_eur.toFixed(2) : '-'}
+                            </div>
+                            <div class="match-count">
+                                ${item.matched_products_count} matches
+                            </div>
+                            <div class="price-stats">
+                                <span class="stat-ok">✓ ${item.price_match_ok_count}</span>
+                                <span class="stat-high">✗ ${item.price_match_high_count}</span>
+                            </div>
+                            <div class="catalog-badge catalog-${item.catalog}">
+                                ${item.catalog.toUpperCase()}
+                            </div>
+                        </div>
+                        <div class="products-container">
+                            <div class="products-grid">
+                                ${item.matched_products.map(product => `
+                                    <div class="product-card">
+                                        <img class="product-image" src="${product.product_data.images && product.product_data.images[0] ? product.product_data.images[0] : 'https://via.placeholder.com/80'}" alt="Product" onerror="this.src='https://via.placeholder.com/80'">
+                                        <div class="product-info">
+                                            <span class="product-code">${product.code || '-'}</span>
+                                            <span class="product-matched">Matched by: ${product.matched_by} (${product.matched_value})</span>
+                                            ${product.product_data.car_details ? `<span class="product-seller">${product.product_data.car_details.make || ''} ${product.product_data.car_details.model || ''}</span>` : ''}
+                                        </div>
+                                        <div class="product-price price-${product.price_classification.toLowerCase()}">
+                                            ${product.price ? '€' + product.price.toFixed(2) : '-'}
+                                        </div>
+                                        <div class="price-classification classification-${product.price_classification}">
+                                            ${product.price_classification}
+                                        </div>
+                                        <div>
+                                            <div class="product-seller">${product.product_data.seller_email || '-'}</div>
+                                            ${product.url ? `<a href="${product.url}" target="_blank" class="product-link">View →</a>` : ''}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            document.getElementById('page-info').textContent = `Page ${currentPage} of ${totalPages || 1}`;
+            document.getElementById('prev-btn').disabled = currentPage === 1;
+            document.getElementById('next-btn').disabled = currentPage >= totalPages;
+        }
+
+        function toggleItem(itemId) {
+            const element = document.getElementById(`item-${itemId}`);
+            element.classList.toggle('expanded');
+        }
+
+        function applyFilters() {
+            currentPage = 1;
+            loadCatalogMatches();
+        }
+
+        function prevPage() {
+            if (currentPage > 1) {
+                currentPage--;
+                renderCatalogList();
+                window.scrollTo(0, 0);
+            }
+        }
+
+        function nextPage() {
+            const totalPages = Math.ceil(allItems.length / pageSize);
+            if (currentPage < totalPages) {
+                currentPage++;
+                renderCatalogList();
+                window.scrollTo(0, 0);
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('auth_token');
+            window.location.href = '/login';
+        }
+
+        // Initialize
+        loadUser();
+        loadStats();
+        loadCatalogMatches();
+    </script>
+</body>
+</html>

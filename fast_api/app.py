@@ -28,7 +28,7 @@ env_path = Path(__file__).parent.parent / '.env'
 if env_path.exists():
     load_dotenv(env_path)
 
-from sources.database.repository import UserRepository, ProductRepository, ConversationRepository
+from sources.database.repository import UserRepository, ProductRepository, ConversationRepository, CatalogMatchRepository
 from sources.database.models import UserModel
 from sources.services.email_service import EmailService
 from pydantic import BaseModel
@@ -63,6 +63,7 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 user_repo = UserRepository(DATABASE_URL) if DATABASE_URL else None
 product_repo = ProductRepository(DATABASE_URL) if DATABASE_URL else None
 conv_repo = ConversationRepository(DATABASE_URL) if DATABASE_URL else None
+catalog_match_repo = CatalogMatchRepository(DATABASE_URL) if DATABASE_URL else None
 email_service = EmailService(DATABASE_URL) if DATABASE_URL else None
 
 
@@ -82,6 +83,12 @@ def get_conv_repo() -> ConversationRepository:
     if not conv_repo:
         raise HTTPException(status_code=500, detail="Database not configured")
     return conv_repo
+
+
+def get_catalog_match_repo() -> CatalogMatchRepository:
+    if not catalog_match_repo:
+        raise HTTPException(status_code=500, detail="Database not configured")
+    return catalog_match_repo
 
 
 def get_email_service() -> EmailService:
@@ -315,14 +322,20 @@ async def auth_callback_page(request: Request):
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(request: Request):
-    """Dashboard page"""
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    """Dashboard page (legacy redirect)"""
+    return templates.TemplateResponse("razom_catalog.html", {"request": request})
+
+
+@app.get("/razom-catalog", response_class=HTMLResponse)
+async def razom_catalog_page(request: Request):
+    """Catalog Matches page"""
+    return templates.TemplateResponse("razom_catalog.html", {"request": request})
 
 
 @app.get("/dashboard-sellers", response_class=HTMLResponse)
 async def dashboard_sellers_page(request: Request):
     """Dashboard sellers page"""
-    return templates.TemplateResponse("dashboard_sellers.html", {"request": request})
+    return templates.TemplateResponse("sellers.html", {"request": request})
 
 
 @app.get("/seller/{email}", response_class=HTMLResponse)
@@ -737,3 +750,227 @@ async def check_email_responses(
         "found": len(responses),
         "responses": responses
     }
+
+
+# ================== CATALOG MATCHES ROUTES ==================
+
+@app.get("/api/catalog-matches")
+async def get_catalog_matches(
+    catalog: Optional[str] = None,
+    segment: Optional[str] = None,
+    price_classification: Optional[str] = None,
+    limit: Optional[int] = None,
+    offset: Optional[int] = 0,
+    user: UserModel = Depends(get_approved_user),
+):
+    """
+    Получение каталожных позиций с совпадениями продуктов
+
+    Параметры:
+    - catalog: Фильтр по каталогу ('eur', 'gur', 'eur,gur', или пусто для всех)
+    - segment: Фильтр по сегменту (например, 'TOP')
+    - price_classification: Фильтр по классификации цен ('OK' or 'HIGH')
+    - limit: Количество записей (пагинация)
+    - offset: Смещение (пагинация)
+    """
+    from sqlalchemy import create_engine, text
+
+    engine = create_engine(DATABASE_URL)
+    with engine.connect() as conn:
+        # Build WHERE conditions
+        where_conditions = []
+        params = {}
+
+        if catalog:
+            # Support multiple catalogs: 'eur,gur' or single 'eur'
+            catalogs = [c.strip() for c in catalog.split(',')]
+            if len(catalogs) == 1:
+                where_conditions.append("catalog = :catalog")
+                params['catalog'] = catalogs[0]
+            else:
+                placeholders = ', '.join([f':catalog{i}' for i in range(len(catalogs))])
+                where_conditions.append(f"catalog IN ({placeholders})")
+                for i, cat in enumerate(catalogs):
+                    params[f'catalog{i}'] = cat
+
+        if segment:
+            where_conditions.append("catalog_segments_names ILIKE :segment")
+            params['segment'] = f"%{segment}%"
+
+        if price_classification:
+            if price_classification == 'OK':
+                where_conditions.append("price_match_ok_count > 0")
+            elif price_classification == 'HIGH':
+                where_conditions.append("price_match_high_count > 0 AND price_match_ok_count = 0")
+
+        where_clause = " AND ".join(where_conditions) if where_conditions else "1=1"
+
+        # Count total
+        count_query = text(f"""
+            SELECT COUNT(*) as total
+            FROM catalog_matches
+            WHERE {where_clause}
+        """)
+        total_result = conn.execute(count_query, params)
+        total_matches = total_result.fetchone()[0]
+
+        # Build main query
+        query = text(f"""
+            SELECT
+                id,
+                catalog,
+                catalog_oes_numbers,
+                catalog_price_eur,
+                catalog_price_usd,
+                catalog_segments_names,
+                matched_products_count,
+                matched_products_ids,
+                price_match_ok_count,
+                price_match_high_count,
+                avg_db_price,
+                min_db_price,
+                max_db_price,
+                catalog_data,
+                matched_products,
+                created_at
+            FROM catalog_matches
+            WHERE {where_clause}
+            ORDER BY price_match_ok_count DESC, matched_products_count DESC
+            {f'LIMIT :limit' if limit else ''}
+            {f'OFFSET :offset' if offset else ''}
+        """)
+
+        if limit:
+            params['limit'] = limit
+        if offset:
+            params['offset'] = offset
+
+        result = conn.execute(query, params)
+        rows = result.fetchall()
+
+    items = []
+    for row in rows:
+        items.append({
+            'id': row[0],
+            'catalog': row[1],
+            'catalog_oes_numbers': row[2],
+            'catalog_price_eur': float(row[3]) if row[3] else None,
+            'catalog_price_usd': float(row[4]) if row[4] else None,
+            'catalog_segments_names': row[5],
+            'matched_products_count': row[6],
+            'matched_products_ids': row[7] or [],
+            'price_match_ok_count': row[8],
+            'price_match_high_count': row[9],
+            'avg_db_price': float(row[10]) if row[10] else None,
+            'min_db_price': float(row[11]) if row[11] else None,
+            'max_db_price': float(row[12]) if row[12] else None,
+            'catalog_data': row[13] or {},
+            'matched_products': row[14] or [],
+            'created_at': row[15].isoformat() if row[15] else None,
+        })
+
+    return {
+        'catalog': catalog,
+        'total_matches': total_matches,
+        'limit': limit,
+        'offset': offset,
+        'items': items
+    }
+
+
+@app.get("/api/catalog-matches/{match_id}")
+async def get_catalog_match_detail(
+    match_id: int,
+    user: UserModel = Depends(get_approved_user),
+):
+    """Получение детальной информации о каталожной позиции с продуктами"""
+    from sqlalchemy import create_engine, text
+
+    engine = create_engine(DATABASE_URL)
+    with engine.connect() as conn:
+        query = text("""
+            SELECT
+                id,
+                catalog,
+                catalog_oes_numbers,
+                catalog_price_eur,
+                catalog_price_usd,
+                catalog_segments_names,
+                matched_products_count,
+                matched_products_ids,
+                price_match_ok_count,
+                price_match_high_count,
+                avg_db_price,
+                min_db_price,
+                max_db_price,
+                catalog_data,
+                matched_products,
+                created_at
+            FROM catalog_matches
+            WHERE id = :match_id
+        """)
+        result = conn.execute(query, {"match_id": match_id})
+        row = result.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Catalog match not found")
+
+    return {
+        'id': row[0],
+        'catalog': row[1],
+        'catalog_oes_numbers': row[2],
+        'catalog_price_eur': float(row[3]) if row[3] else None,
+        'catalog_price_usd': float(row[4]) if row[4] else None,
+        'catalog_segments_names': row[5],
+        'matched_products_count': row[6],
+        'matched_products_ids': row[7] or [],
+        'price_match_ok_count': row[8],
+        'price_match_high_count': row[9],
+        'avg_db_price': float(row[10]) if row[10] else None,
+        'min_db_price': float(row[11]) if row[11] else None,
+        'max_db_price': float(row[12]) if row[12] else None,
+        'catalog_data': row[13] or {},
+        'matched_products': row[14] or [],
+        'created_at': row[15].isoformat() if row[15] else None,
+    }
+
+
+@app.get("/api/catalog-stats")
+async def get_catalog_stats(
+    user: UserModel = Depends(get_approved_user),
+):
+    """Получение статистики по каталогам"""
+    from sqlalchemy import create_engine, text
+
+    engine = create_engine(DATABASE_URL)
+    with engine.connect() as conn:
+        query = text("""
+            SELECT
+                catalog,
+                COUNT(*) as total_catalog_items,
+                SUM(matched_products_count) as total_matched_products,
+                SUM(price_match_ok_count) as total_ok_prices,
+                SUM(price_match_high_count) as total_high_prices,
+                AVG(avg_db_price) as overall_avg_price,
+                COUNT(CASE WHEN price_match_ok_count > 0 THEN 1 END) as items_with_ok_prices,
+                COUNT(CASE WHEN price_match_high_count > 0 AND price_match_ok_count = 0 THEN 1 END) as items_with_only_high_prices
+            FROM catalog_matches
+            GROUP BY catalog
+        """)
+        result = conn.execute(query)
+        rows = result.fetchall()
+
+    stats = []
+    for row in rows:
+        stats.append({
+            'catalog': row[0],
+            'total_catalog_items': row[1],
+            'total_matched_products': row[2],
+            'total_ok_prices': row[3],
+            'total_high_prices': row[4],
+            'overall_avg_price': float(row[5]) if row[5] else None,
+            'items_with_ok_prices': row[6],
+            'items_with_only_high_prices': row[7],
+        })
+
+    return stats

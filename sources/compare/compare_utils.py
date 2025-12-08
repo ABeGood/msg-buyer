@@ -309,6 +309,71 @@ def compare_all_and_save(
     return results
 
 
+def _group_catalog_results_by_article(catalog_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Group catalog results by article (and brand) to avoid duplicates.
+    Merges products from multiple catalog rows with the same article.
+
+    Args:
+        catalog_results: List of catalog result dictionaries
+
+    Returns:
+        List of grouped catalog results (one per unique article+brand)
+    """
+    # Group by article and brand
+    grouped = {}
+
+    for result in catalog_results:
+        article = result['catalog_data'].get('article', '')
+        brand = result['catalog_data'].get('brand', '')
+        key = f"{article}|{brand}"
+
+        if key not in grouped:
+            # First occurrence - initialize
+            grouped[key] = result.copy()
+            grouped[key]['all_oes_numbers'] = [result['catalog_oes_numbers']]
+        else:
+            # Merge with existing
+            existing = grouped[key]
+
+            # Merge matched products (avoid duplicates by part_id)
+            existing_part_ids = {p['part_id'] for p in existing['matched_products']}
+            for product in result['matched_products']:
+                if product['part_id'] not in existing_part_ids:
+                    existing['matched_products'].append(product)
+                    existing_part_ids.add(product['part_id'])
+
+            # Collect all OES numbers
+            if result['catalog_oes_numbers'] not in existing['all_oes_numbers']:
+                existing['all_oes_numbers'].append(result['catalog_oes_numbers'])
+
+            # Recalculate statistics
+            prices = [p['price'] for p in existing['matched_products'] if p['price'] is not None]
+            ok_count = sum(1 for p in existing['matched_products'] if p['price_classification'] == 'OK')
+            high_count = sum(1 for p in existing['matched_products'] if p['price_classification'] == 'HIGH')
+
+            existing['matched_products_count'] = len(existing['matched_products'])
+            existing['matched_products_ids'] = [p['part_id'] for p in existing['matched_products']]
+            existing['price_match_ok_count'] = ok_count
+            existing['price_match_high_count'] = high_count
+            existing['avg_db_price'] = sum(prices) / len(prices) if prices else None
+            existing['min_db_price'] = min(prices) if prices else None
+            existing['max_db_price'] = max(prices) if prices else None
+
+            # Update catalog_oes_numbers to show all variants
+            existing['catalog_oes_numbers'] = ' | '.join(existing['all_oes_numbers'])
+
+    # Convert back to list and clean up temporary fields
+    result_list = []
+    for result in grouped.values():
+        if 'all_oes_numbers' in result:
+            del result['all_oes_numbers']
+        result_list.append(result)
+
+    logger.info(f"Grouped {len(catalog_results)} catalog rows into {len(result_list)} unique articles")
+    return result_list
+
+
 def compare_catalog_with_products(
     table: str,
     price_delta_perc: float
@@ -437,6 +502,9 @@ def compare_catalog_with_products(
             }
 
             catalog_results.append(catalog_result)
+
+    # Group by article to avoid duplicates
+    catalog_results = _group_catalog_results_by_article(catalog_results)
 
     # Build unmatched products
     unmatched_results = []
