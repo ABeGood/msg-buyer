@@ -605,21 +605,41 @@ async def get_sellers_stats(
                 COALESCE(stats.total_matches, 0) as total_matches,
                 COALESCE(stats.ok_matches, 0) as ok_matches,
                 COALESCE(stats.high_matches, 0) as high_matches,
-                COALESCE(stats.total_products, 0) as total_products
+                COALESCE(stats.total_products, 0) as total_products,
+                COALESCE(stats.ok_products, 0) as ok_products,
+                COALESCE(stats.high_products, 0) as high_products
             FROM sellers s
             LEFT JOIN LATERAL (
                 SELECT
                     COUNT(*) as total_matches,
                     COUNT(*) FILTER (WHERE mp->>'price_classification' = 'OK') as ok_matches,
                     COUNT(*) FILTER (WHERE mp->>'price_classification' = 'HIGH') as high_matches,
-                    COUNT(DISTINCT p.part_id) as total_products
+                    COUNT(DISTINCT p.part_id) as total_products,
+                    COUNT(DISTINCT p.part_id) FILTER (
+                        WHERE EXISTS (
+                            SELECT 1
+                            FROM catalog_matches cm2
+                            CROSS JOIN jsonb_array_elements(cm2.matched_products) mp2
+                            WHERE (mp2->>'part_id') = p.part_id
+                            AND (mp2->>'price_classification') = 'OK'
+                        )
+                    ) as ok_products,
+                    COUNT(DISTINCT p.part_id) FILTER (
+                        WHERE EXISTS (
+                            SELECT 1
+                            FROM catalog_matches cm2
+                            CROSS JOIN jsonb_array_elements(cm2.matched_products) mp2
+                            WHERE (mp2->>'part_id') = p.part_id
+                            AND (mp2->>'price_classification') = 'HIGH'
+                        )
+                    ) as high_products
                 FROM catalog_matches cm
                 CROSS JOIN jsonb_array_elements(cm.matched_products) mp
                 JOIN products p ON p.part_id = (mp->>'part_id')
                 WHERE p.seller_email = s.email
             ) stats ON true
             WHERE stats.total_matches > 0
-            ORDER BY stats.ok_matches DESC NULLS LAST
+            ORDER BY stats.ok_products DESC NULLS LAST
         """)
         result = conn.execute(query)
         rows = result.fetchall()
@@ -636,6 +656,8 @@ async def get_sellers_stats(
             'ok_matches': row[6],
             'high_matches': row[7],
             'total_products': row[8],
+            'ok_products': row[9],
+            'high_products': row[10],
         })
 
     return sellers

@@ -291,11 +291,11 @@
                 <div class="value" id="total-sellers">-</div>
             </div>
             <div class="stat-card">
-                <h3>Total OK Positions</h3>
+                <h3>Total OK Products</h3>
                 <div class="value green" id="total-ok">-</div>
             </div>
             <div class="stat-card">
-                <h3>Total HIGH Positions</h3>
+                <h3>Total HIGH Products</h3>
                 <div class="value red" id="total-high">-</div>
             </div>
             <div class="stat-card">
@@ -316,16 +316,15 @@
                         <tr>
                             <th onclick="sortBy('name')">Seller</th>
                             <th onclick="sortBy('rating')">Rating</th>
-                            <th onclick="sortBy('ok_matches')">OK Positions</th>
-                            <th onclick="sortBy('high_matches')">HIGH Positions</th>
-                            <th onclick="sortBy('total_matches')">Total Matches</th>
+                            <th onclick="sortBy('ok_products')">OK Products</th>
+                            <th onclick="sortBy('high_products')">HIGH Products</th>
+                            <th onclick="sortBy('total_products')">Total Products</th>
                             <th>OK Rate</th>
-                            <th onclick="sortBy('total_products')">Products</th>
                         </tr>
                     </thead>
                     <tbody id="sellers-table">
                         <tr>
-                            <td colspan="7">
+                            <td colspan="6">
                                 <div class="loading">
                                     <div class="spinner"></div>
                                     Loading sellers...
@@ -346,7 +345,7 @@
 
         let allSellers = [];
         let filteredSellers = [];
-        let sortField = 'ok_matches';
+        let sortField = 'ok_products';
         let sortAsc = false;
 
         async function loadUser() {
@@ -381,7 +380,7 @@
                 renderTable();
             } catch (e) {
                 document.getElementById('sellers-table').innerHTML = `
-                    <tr><td colspan="7">
+                    <tr><td colspan="6">
                         <div class="empty-state">
                             <div class="icon">⚠️</div>
                             <p>Failed to load sellers</p>
@@ -394,8 +393,8 @@
         function updateStats() {
             document.getElementById('total-sellers').textContent = allSellers.length;
 
-            const totalOk = allSellers.reduce((sum, s) => sum + (s.ok_matches || 0), 0);
-            const totalHigh = allSellers.reduce((sum, s) => sum + (s.high_matches || 0), 0);
+            const totalOk = allSellers.reduce((sum, s) => sum + (s.ok_products || 0), 0);
+            const totalHigh = allSellers.reduce((sum, s) => sum + (s.high_products || 0), 0);
             document.getElementById('total-ok').textContent = totalOk;
             document.getElementById('total-high').textContent = totalHigh;
 
@@ -406,7 +405,7 @@
         function renderTable() {
             if (filteredSellers.length === 0) {
                 document.getElementById('sellers-table').innerHTML = `
-                    <tr><td colspan="7">
+                    <tr><td colspan="6">
                         <div class="empty-state">
                             <div class="icon">👤</div>
                             <p>No sellers found</p>
@@ -417,7 +416,7 @@
             }
 
             document.getElementById('sellers-table').innerHTML = filteredSellers.map(s => {
-                const okRate = s.total_matches > 0 ? ((s.ok_matches / s.total_matches) * 100).toFixed(0) : 0;
+                const okRate = s.total_products > 0 ? ((s.ok_products / s.total_products) * 100).toFixed(0) : 0;
                 return `
                     <tr onclick="window.location.href='/seller/${encodeURIComponent(s.email)}'" style="cursor:pointer">
                         <td>
@@ -425,16 +424,15 @@
                             <div class="seller-email">${s.email || '-'}</div>
                         </td>
                         <td class="rating">${s.rating ? '★'.repeat(Math.min(5, Math.round(s.rating/20))) : '-'}</td>
-                        <td><span class="badge badge-ok">${s.ok_matches || 0}</span></td>
-                        <td><span class="badge badge-high">${s.high_matches || 0}</span></td>
-                        <td><span class="badge badge-total">${s.total_matches || 0}</span></td>
+                        <td><span class="badge badge-ok">${s.ok_products || 0}</span></td>
+                        <td><span class="badge badge-high">${s.high_products || 0}</span></td>
+                        <td><span class="badge badge-total">${s.total_products || 0}</span></td>
                         <td>
                             <div class="progress-bar">
                                 <div class="fill" style="width: ${okRate}%"></div>
                             </div>
                             <span style="font-size:12px;color:#666">${okRate}%</span>
                         </td>
-                        <td>${s.total_products || 0}</td>
                     </tr>
                 `;
             }).join('');
