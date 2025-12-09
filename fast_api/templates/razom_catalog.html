@@ -159,6 +159,45 @@
             border-color: #667eea;
         }
 
+        .search-btn {
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+            white-space: nowrap;
+        }
+
+        .search-btn:hover {
+            background: #5568d3;
+        }
+
+        .search-btn:active {
+            transform: scale(0.98);
+        }
+
+        .search-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .spinner-small {
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
         /* Catalog items */
         .catalog-list {
             background: white;
@@ -407,6 +446,12 @@
             color: #666;
         }
 
+        .product-links {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
         .product-link {
             color: #667eea;
             text-decoration: none;
@@ -545,8 +590,16 @@
                 </select>
             </div>
             <div class="filter-group">
-                <label>Search OES</label>
-                <input type="text" id="search-input" placeholder="Search OES numbers..." oninput="applyFilters()">
+                <label>Search Article</label>
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="search-input" placeholder="Search article..." onkeypress="if(event.key === 'Enter') applyFilters()" style="flex: 1;">
+                    <button onclick="applyFilters()" class="search-btn" id="search-btn">
+                        <span class="search-btn-text">Search</span>
+                        <span class="search-btn-spinner" style="display: none;">
+                            <div class="spinner-small"></div>
+                        </span>
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -623,6 +676,14 @@
             const priceClass = document.getElementById('price-filter').value;
             const search = document.getElementById('search-input').value;
 
+            // Show spinner on search button
+            const searchBtn = document.getElementById('search-btn');
+            const btnText = searchBtn.querySelector('.search-btn-text');
+            const btnSpinner = searchBtn.querySelector('.search-btn-spinner');
+            btnText.style.display = 'none';
+            btnSpinner.style.display = 'inline-block';
+            searchBtn.disabled = true;
+
             try {
                 let url = '/api/catalog-matches?';
                 const params = new URLSearchParams();
@@ -647,7 +708,7 @@
                 // Apply search filter client-side
                 if (search) {
                     allItems = allItems.filter(item =>
-                        item.catalog_oes_numbers.toLowerCase().includes(search.toLowerCase())
+                        item.catalog_data.article && item.catalog_data.article.toLowerCase().includes(search.toLowerCase())
                     );
                 }
 
@@ -659,6 +720,14 @@
                         <p>Failed to load catalog matches</p>
                     </div>
                 `;
+            } finally {
+                // Hide spinner on search button
+                const searchBtn = document.getElementById('search-btn');
+                const btnText = searchBtn.querySelector('.search-btn-text');
+                const btnSpinner = searchBtn.querySelector('.search-btn-spinner');
+                btnText.style.display = 'inline';
+                btnSpinner.style.display = 'none';
+                searchBtn.disabled = false;
             }
         }
 
@@ -730,7 +799,7 @@
                                         <div class="price-classification classification-${product.price_classification}">
                                             ${product.price_classification}
                                         </div>
-                                        <div>
+                                        <div class="product-links">
                                             ${product.product_data.seller_email ? `<a href="/seller/${encodeURIComponent(product.product_data.seller_email)}" class="product-link">${product.product_data.seller_email}</a>` : '-'}
                                             ${product.url ? `<a href="${product.url}" target="_blank" class="product-link">View Product →</a>` : ''}
                                         </div>
