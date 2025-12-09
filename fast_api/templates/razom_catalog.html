@@ -169,7 +169,7 @@
 
         .catalog-list-header {
             display: grid;
-            grid-template-columns: 40px 150px 120px 120px 120px 100px 80px;
+            grid-template-columns: 40px 150px 100px 120px 120px 120px 100px 80px;
             gap: 16px;
             padding: 12px 20px;
             background: #f8f9fa;
@@ -193,7 +193,7 @@
             padding: 16px 20px;
             cursor: pointer;
             display: grid;
-            grid-template-columns: 40px 150px 120px 120px 120px 100px 80px;
+            grid-template-columns: 40px 150px 100px 120px 120px 120px 100px 80px;
             gap: 16px;
             align-items: center;
         }
@@ -680,6 +680,7 @@
                     <div class="catalog-list-header">
                         <div></div>
                         <div>Article</div>
+                        <div>Segment</div>
                         <div>Brand</div>
                         <div>Catalog Price</div>
                         <div>Matches</div>
@@ -692,6 +693,8 @@
                             <div class="expand-icon">▶</div>
                             <div>
                                 <span class="article-number">${item.catalog_data.article || '-'}</span>
+                            </div>
+                            <div>
                                 <span class="segment-badge segment-${item.catalog_segments_names || 'STANDARD'}">${item.catalog_segments_names || 'STANDARD'}</span>
                             </div>
                             <div>
