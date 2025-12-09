@@ -542,7 +542,6 @@ async def get_seller_positions(
                     'classification': product.get('price_classification'),
                     'images': product_data.get('images', []),
                     'catalog_data': catalog_data,
-                    'catalog_article': catalog_data.get('article') if isinstance(catalog_data, dict) else None,
                 })
 
     return positions
