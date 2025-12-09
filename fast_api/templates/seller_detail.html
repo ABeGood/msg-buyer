@@ -651,11 +651,12 @@
             document.getElementById('positions-table').innerHTML = filteredPositions.map(p => {
                 // Use catalog_article field from API response
                 const catalogArticle = p.catalog_data.article || '-';
+                const posId = p.id || p.part_id;
 
                 return `
-                <tr class="${selectedPositions.has(p.id) ? 'selected' : ''}" onclick="togglePosition(${p.id})">
+                <tr class="${selectedPositions.has(posId) ? 'selected' : ''}" onclick="togglePosition('${posId}')">
                     <td class="checkbox-cell">
-                        <input type="checkbox" ${selectedPositions.has(p.id) ? 'checked' : ''} onclick="event.stopPropagation(); togglePosition(${p.id})">
+                        <input type="checkbox" ${selectedPositions.has(posId) ? 'checked' : ''} onclick="event.stopPropagation(); togglePosition('${posId}')">
                     </td>
                     <td>
                         <span class="code">${p.code || p.part_id}</span>
@@ -690,9 +691,9 @@
 
         function toggleSelectAll(checkbox) {
             if (checkbox.checked) {
-                filteredPositions.forEach(p => selectedPositions.add(p.id));
+                filteredPositions.forEach(p => selectedPositions.add(p.id || p.part_id));
             } else {
-                filteredPositions.forEach(p => selectedPositions.delete(p.id));
+                filteredPositions.forEach(p => selectedPositions.delete(p.id || p.part_id));
             }
             renderTable();
             updateEmailTemplate();
@@ -747,15 +748,13 @@
             }
 
             // Get selected position objects
-            const selected = allPositions.filter(p => selectedPositions.has(p.id));
+            const selected = allPositions.filter(p => selectedPositions.has(p.id || p.part_id));
 
             // Format parts list
             let partsList = template.partsHeader;
             selected.forEach(p => {
                 let line = '• ';
                 if (p.code) line += `SKU: ${p.code}`;
-                if (p.oem_code) line += ` | OEM: ${p.oem_code}`;
-                if (p.manufacturer_code) line += ` | Manufacturer: ${p.manufacturer_code}`;
                 if (p.url) line += ` | ${p.url}`;
                 partsList += line + '\n';
             });
@@ -780,7 +779,7 @@
             const subject = document.getElementById('email-subject').value;
             const body = document.getElementById('email-body').value;
             const selectedPartIds = allPositions
-                .filter(p => selectedPositions.has(p.id))
+                .filter(p => selectedPositions.has(p.id || p.part_id))
                 .map(p => p.part_id);
 
             // Disable button and show loading
