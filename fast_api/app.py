@@ -332,7 +332,7 @@ async def razom_catalog_page(request: Request):
     return templates.TemplateResponse("razom_catalog.html", {"request": request})
 
 
-@app.get("/dashboard-sellers", response_class=HTMLResponse)
+@app.get("/sellers", response_class=HTMLResponse)
 async def dashboard_sellers_page(request: Request):
     """Dashboard sellers page"""
     return templates.TemplateResponse("sellers.html", {"request": request})
@@ -486,68 +486,64 @@ async def get_seller_positions(
     email: str,
     user: UserModel = Depends(get_approved_user),
 ):
-    """Получение позиций продавца с результатами сравнения"""
+    """Получение позиций продавца с результатами сравнения из catalog_matches"""
     from sqlalchemy import create_engine, text
     from urllib.parse import unquote
+    import json
 
     email = unquote(email)
     engine = create_engine(DATABASE_URL)
+
     with engine.connect() as conn:
+        # Get all matched products for this seller from catalog_matches
         query = text("""
-            WITH url_stats AS (
-                SELECT
-                    c.db_url,
-                    MIN(CASE WHEN c.price_classification = 'OK' THEN 0 ELSE 1 END) as best_class,
-                    MIN(CASE WHEN c.catalog_price_eur > 0 THEN c.catalog_price_eur END) as min_catalog_price
-                FROM compare c
-                JOIN products p ON p.part_id = c.db_part_id
+            SELECT
+                cm.id,
+                cm.catalog,
+                cm.catalog_oes_numbers,
+                cm.catalog_price_eur,
+                cm.catalog_segments_names,
+                cm.catalog_data,
+                cm.matched_products
+            FROM catalog_matches cm
+            WHERE EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements(cm.matched_products) AS mp
+                JOIN products p ON p.part_id = (mp->>'part_id')
                 WHERE p.seller_email = :email
-                GROUP BY c.db_url
             )
-            SELECT DISTINCT ON (c.db_url)
-                c.id,
-                c.catalog,
-                c.db_part_id,
-                c.db_code,
-                c.db_price,
-                c.db_url,
-                c.db_oem_code,
-                c.db_manufacturer_code,
-                c.catalog_oes_numbers,
-                us.min_catalog_price,
-                c.catalog_segments_names,
-                c.matched_by,
-                c.matched_value,
-                CASE WHEN us.best_class = 0 THEN 'OK' ELSE c.price_classification END as price_classification,
-                p.images
-            FROM compare c
-            JOIN products p ON p.part_id = c.db_part_id
-            JOIN url_stats us ON us.db_url = c.db_url
-            WHERE p.seller_email = :email
-            ORDER BY c.db_url, c.db_price ASC
         """)
         result = conn.execute(query, {"email": email})
         rows = result.fetchall()
 
     positions = []
     for row in rows:
-        positions.append({
-            'id': row[0],
-            'catalog': row[1],
-            'part_id': row[2],
-            'code': row[3],
-            'price': float(row[4]) if row[4] else None,
-            'url': row[5],
-            'oem_code': row[6],
-            'manufacturer_code': row[7],
-            'catalog_oes_numbers': row[8],
-            'catalog_price_eur': float(row[9]) if row[9] else None,
-            'catalog_segments': row[10],
-            'matched_by': row[11],
-            'matched_value': row[12],
-            'classification': row[13],
-            'images': row[14] or [],
-        })
+        catalog_data = row[5] or {}
+        matched_products = row[6] or []
+
+        # Filter matched products for this seller only
+        for product in matched_products:
+            product_data = product.get('product_data', {})
+            if product_data.get('seller_email') == email:
+                positions.append({
+                    'id': f"{row[0]}_{product.get('part_id')}",  # Unique ID
+                    'catalog': row[1],
+                    'part_id': product.get('part_id'),
+                    'code': product.get('code'),
+                    'price': product.get('price'),
+                    'url': product.get('url'),
+                    'oem_code': product_data.get('item_description', {}).get('oem_code'),
+                    'manufacturer_code': product_data.get('item_description', {}).get('manufacturer_code'),
+                    'catalog_oes_numbers': row[2],
+                    'catalog_price_eur': float(row[3]) if row[3] else None,
+                    'catalog_segments': row[4],
+                    'matched_by': product.get('matched_by'),
+                    'matched_value': product.get('matched_value'),
+                    'classification': product.get('price_classification'),
+                    'images': product_data.get('images', []),
+                    'catalog_data': catalog_data,
+                    'catalog_article': catalog_data.get('article') if isinstance(catalog_data, dict) else None,
+                })
 
     return positions
 
@@ -635,6 +631,91 @@ async def get_sellers_stats(
         })
 
     return sellers
+
+
+@app.get("/seller/sales")
+async def get_seller_sales(
+    email: str,
+    user: UserModel = Depends(get_approved_user),
+):
+    """
+    Получение продаж продавца из conversations с данными о продуктах
+    """
+    from sqlalchemy import create_engine, text
+    from urllib.parse import unquote
+    import json
+
+    email = unquote(email)
+    engine = create_engine(DATABASE_URL)
+    with engine.connect() as conn:
+        query = text("""
+            SELECT
+                c.id,
+                c.title,
+                c.seller_email,
+                c.position_ids,
+                c.status,
+                c.created_at,
+                c.updated_at,
+                COUNT(m.id) as message_count
+            FROM conversations c
+            LEFT JOIN conversation_messages m ON m.conversation_id = c.id
+            WHERE c.seller_email = :email
+            GROUP BY c.id, c.title, c.seller_email, c.position_ids, c.status, c.created_at, c.updated_at
+            ORDER BY c.updated_at DESC
+        """)
+        result = conn.execute(query, {"email": email})
+        rows = result.fetchall()
+
+    sales = []
+    for row in rows:
+        position_ids = row[3] or []
+
+        # Fetch product details for each position
+        products = []
+        if position_ids:
+            with engine.connect() as conn:
+                products_query = text("""
+                    SELECT
+                        p.part_id,
+                        p.code,
+                        p.price,
+                        p.images,
+                        c.catalog_data,
+                        c.matched_by,
+                        c.matched_value
+                    FROM products p
+                    LEFT JOIN compare c ON c.db_part_id = p.part_id
+                    WHERE p.part_id = ANY(:position_ids)
+                """)
+                products_result = conn.execute(products_query, {"position_ids": position_ids})
+                products_rows = products_result.fetchall()
+
+                for prod_row in products_rows:
+                    catalog_data = prod_row[4] or {}
+                    products.append({
+                        'part_id': prod_row[0],
+                        'code': prod_row[1],
+                        'price': float(prod_row[2]) if prod_row[2] else None,
+                        'images': prod_row[3] or [],
+                        'catalog_article': catalog_data.get('article') if catalog_data else None,
+                        'matched_by': prod_row[5],
+                        'matched_value': prod_row[6],
+                    })
+
+        sales.append({
+            'id': row[0],
+            'title': row[1],
+            'seller_email': row[2],
+            'position_ids': position_ids,
+            'products': products,
+            'status': row[4],
+            'created_at': row[5].isoformat() if row[5] else None,
+            'updated_at': row[6].isoformat() if row[6] else None,
+            'message_count': row[7],
+        })
+
+    return sales
 
 
 # ================== CONVERSATION ROUTES ==================

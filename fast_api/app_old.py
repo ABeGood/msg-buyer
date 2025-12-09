@@ -241,7 +241,7 @@ async def dashboard_page(request: Request):
     return templates.TemplateResponse("razom_catalog.html", {"request": request})
 
 
-@app.get("/dashboard-sellers", response_class=HTMLResponse)
+@app.get("/sellers", response_class=HTMLResponse)
 async def dashboard_sellers_page(request: Request):
     """Dashboard sellers page"""
     return templates.TemplateResponse("sellers.html", {"request": request})

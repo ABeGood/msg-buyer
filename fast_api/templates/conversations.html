@@ -104,6 +104,21 @@
             border-bottom: 1px solid #e0e0e0;
             font-weight: 600;
             color: #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .filter-toggle {
+            font-size: 12px;
+            color: #667eea;
+            cursor: pointer;
+            font-weight: normal;
+            user-select: none;
+        }
+
+        .filter-toggle:hover {
+            color: #5a6fd6;
         }
 
         .list-body {
@@ -434,7 +449,7 @@
         <h1>🚗 MSG Buyer</h1>
         <nav class="nav-links">
             <a href="/razom-catalog">Catalog Matches</a>
-            <a href="/dashboard-sellers">Sellers</a>
+            <a href="/sellers">Sellers</a>
             <a href="/conversations" class="active">Conversations</a>
         </nav>
         <div class="user-info">
@@ -447,7 +462,12 @@
     <div class="main-container">
         <!-- Left Panel: Conversations List -->
         <div class="conversations-list" id="conversations-list">
-            <div class="list-header">Conversations</div>
+            <div class="list-header">
+                <span>Conversations</span>
+                <span class="filter-toggle" id="filter-toggle" onclick="toggleClosedConversations()">
+                    Hide Closed
+                </span>
+            </div>
             <div class="list-body" id="list-body">
                 <div class="loading">
                     <div class="spinner"></div>
@@ -501,6 +521,7 @@
         let conversations = [];
         let currentConversation = null;
         let currentMessages = [];
+        let hideClosedConversations = true;
 
         async function loadConversations() {
             try {
@@ -523,17 +544,29 @@
             }
         }
 
+        function toggleClosedConversations() {
+            hideClosedConversations = !hideClosedConversations;
+            document.getElementById('filter-toggle').textContent =
+                hideClosedConversations ? 'Show Closed' : 'Hide Closed';
+            renderConversationsList();
+        }
+
         function renderConversationsList() {
-            if (conversations.length === 0) {
+            // Filter conversations based on hideClosedConversations
+            const filteredConversations = hideClosedConversations
+                ? conversations.filter(conv => conv.status !== 'closed')
+                : conversations;
+
+            if (filteredConversations.length === 0) {
                 document.getElementById('list-body').innerHTML = `
                     <div class="empty-state">
-                        <p>No conversations yet</p>
+                        <p>${hideClosedConversations ? 'No active conversations' : 'No conversations yet'}</p>
                     </div>
                 `;
                 return;
             }
 
-            document.getElementById('list-body').innerHTML = conversations.map(conv => {
+            document.getElementById('list-body').innerHTML = filteredConversations.map(conv => {
                 const isActive = currentConversation && currentConversation.id === conv.id;
                 const hasUnread = conv.has_unread;
                 const lastMsg = conv.last_message;

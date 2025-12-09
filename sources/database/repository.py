@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sources.database.models import ProductModel, SellerModel, UserModel, CompareResultModel, ConversationModel, MessageModel, ConversationClassificationModel, CatalogMatchModel, UnmatchedProductModel, Base
 from sources.classes.product import Product
 from sources.utils.logger import get_logger
+from sources.utils.formatter import clean_reply_to_text
 
 logger = get_logger("repository")
 
@@ -834,6 +835,18 @@ class CompareRepository:
         saved_count = 0
         try:
             for row in results:
+                # Build catalog_data with all catalog fields (non-db fields)
+                catalog_data = {k: v for k, v in row.items() if not k.startswith('db_') and k not in ['matched_by', 'matched_value', 'price_classification']}
+
+                # Debug: log first row to verify article is included
+                if saved_count == 0:
+                    logger.info(f"Sample row keys: {list(row.keys())}")
+                    logger.info(f"Catalog_data keys: {list(catalog_data.keys())}")
+                    if 'article' in catalog_data:
+                        logger.info(f"Article found in catalog_data: {catalog_data['article']}")
+                    else:
+                        logger.warning("Article NOT found in catalog_data!")
+
                 compare_result = CompareResultModel(
                     catalog=catalog,
                     db_part_id=row.get('db_part_id'),
@@ -848,7 +861,7 @@ class CompareRepository:
                     catalog_oes_numbers=row.get('oes_numbers'),
                     catalog_price_eur=row.get('price_eur'),
                     catalog_segments_names=row.get('segments_names'),
-                    catalog_data={k: v for k, v in row.items() if not k.startswith('db_') and k not in ['matched_by', 'matched_value', 'price_classification']},
+                    catalog_data=catalog_data,
                     matched_by=row.get('matched_by'),
                     matched_value=row.get('matched_value'),
                     price_classification=row.get('price_classification'),
@@ -1444,6 +1457,9 @@ class ConversationRepository:
                 .filter_by(conversation_id=conversation_id)\
                 .order_by(MessageModel.created_at.asc())\
                 .all()
+            
+            for message in messages:
+                message.body = clean_reply_to_text(message.body)
 
             return {
                 'conversation': conversation.to_dict(),

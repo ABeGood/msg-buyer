@@ -167,6 +167,19 @@
             overflow: hidden;
         }
 
+        .catalog-list-header {
+            display: grid;
+            grid-template-columns: 40px 150px 120px 120px 120px 100px 80px;
+            gap: 16px;
+            padding: 12px 20px;
+            background: #f8f9fa;
+            border-bottom: 2px solid #e0e0e0;
+            font-size: 12px;
+            font-weight: 600;
+            color: #666;
+            text-transform: uppercase;
+        }
+
         .catalog-item {
             border-bottom: 1px solid #eee;
             transition: background 0.2s;
@@ -180,7 +193,7 @@
             padding: 16px 20px;
             cursor: pointer;
             display: grid;
-            grid-template-columns: 40px 1fr 120px 120px 100px 80px;
+            grid-template-columns: 40px 150px 120px 120px 120px 100px 80px;
             gap: 16px;
             align-items: center;
         }
@@ -474,10 +487,9 @@
     <header class="header">
         <h1>🚗 MSG Buyer</h1>
         <nav class="nav-links">
-            <a href="/dashboard">Products</a>
-            <a href="/dashboard-sellers">Sellers</a>
-            <a href="/conversations">Conversations</a>
             <a href="/razom-catalog" class="active">Catalog Matches</a>
+            <a href="/sellers">Sellers</a>
+            <a href="/conversations">Conversations</a>
         </nav>
         <div class="user-info">
             <img id="user-avatar" src="" alt="Avatar">
@@ -664,16 +676,26 @@
                     </div>
                 `;
             } else {
-                document.getElementById('catalog-list').innerHTML = pageItems.map(item => `
+                document.getElementById('catalog-list').innerHTML = `
+                    <div class="catalog-list-header">
+                        <div></div>
+                        <div>Article</div>
+                        <div>Brand</div>
+                        <div>Catalog Price</div>
+                        <div>Matches</div>
+                        <div>Price Stats</div>
+                        <div>Catalog</div>
+                    </div>
+                ` + pageItems.map(item => `
                     <div class="catalog-item" id="item-${item.id}">
                         <div class="catalog-header" onclick="toggleItem(${item.id})">
                             <div class="expand-icon">▶</div>
-                            <div class="catalog-info">
-                                <div class="article-info">
-                                    <span class="article-number">${item.catalog_data.article || '-'}</span>
-                                    ${item.catalog_data.brand ? `<span class="brand-name">${typeof item.catalog_data.brand === 'object' ? item.catalog_data.brand.name : (typeof item.catalog_data.brand === 'string' && item.catalog_data.brand.startsWith('{') ? JSON.parse(item.catalog_data.brand.replace(/'/g, '"')).name : item.catalog_data.brand)}</span>` : ''}
-                                </div>
+                            <div>
+                                <span class="article-number">${item.catalog_data.article || '-'}</span>
                                 <span class="segment-badge segment-${item.catalog_segments_names || 'STANDARD'}">${item.catalog_segments_names || 'STANDARD'}</span>
+                            </div>
+                            <div>
+                                ${item.catalog_data.brand ? `<span class="brand-name">${typeof item.catalog_data.brand === 'object' ? item.catalog_data.brand.name : (typeof item.catalog_data.brand === 'string' && item.catalog_data.brand.startsWith('{') ? JSON.parse(item.catalog_data.brand.replace(/'/g, '"')).name : item.catalog_data.brand)}</span>` : '-'}
                             </div>
                             <div class="catalog-price">
                                 €${item.catalog_price_eur ? item.catalog_price_eur.toFixed(2) : '-'}
@@ -706,8 +728,8 @@
                                             ${product.price_classification}
                                         </div>
                                         <div>
-                                            <div class="product-seller">${product.product_data.seller_email || '-'}</div>
-                                            ${product.url ? `<a href="${product.url}" target="_blank" class="product-link">View →</a>` : ''}
+                                            ${product.product_data.seller_email ? `<a href="/seller/${encodeURIComponent(product.product_data.seller_email)}" class="product-link">${product.product_data.seller_email}</a>` : '-'}
+                                            ${product.url ? `<a href="${product.url}" target="_blank" class="product-link">View Product →</a>` : ''}
                                         </div>
                                     </div>
                                 `).join('')}
