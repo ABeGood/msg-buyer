@@ -586,14 +586,15 @@ async def get_sellers_stats(
 ):
     """
     Получение статистики по продавцам:
-    - Количество позиций, которые можно закрыть (price_classification = 'OK')
-    - Общее количество позиций в compare
+    - OK matches: количество matched products от продавца с price_classification = 'OK'
+    - HIGH matches: количество matched products от продавца с price_classification = 'HIGH'
+    - Total matches: общее количество matched products от продавца
     """
     from sqlalchemy import create_engine, text
 
     engine = create_engine(DATABASE_URL)
     with engine.connect() as conn:
-        # Query: join sellers -> products -> compare, group by seller
+        # Query: Count matched products for each seller by classification
         query = text("""
             SELECT
                 s.email,
@@ -601,16 +602,24 @@ async def get_sellers_stats(
                 s.phone,
                 s.title,
                 s.rating,
-                COUNT(DISTINCT c.id) as total_matches,
-                COUNT(DISTINCT CASE WHEN c.price_classification = 'OK' THEN c.id END) as ok_matches,
-                COUNT(DISTINCT CASE WHEN c.price_classification = 'HIGH' THEN c.id END) as high_matches,
-                COUNT(DISTINCT p.part_id) as total_products
+                COALESCE(stats.total_matches, 0) as total_matches,
+                COALESCE(stats.ok_matches, 0) as ok_matches,
+                COALESCE(stats.high_matches, 0) as high_matches,
+                COALESCE(stats.total_products, 0) as total_products
             FROM sellers s
-            LEFT JOIN products p ON p.seller_email = s.email
-            LEFT JOIN compare c ON c.db_part_id = p.part_id
-            GROUP BY s.email, s.name, s.phone, s.title, s.rating
-            HAVING COUNT(DISTINCT c.id) > 0
-            ORDER BY COUNT(DISTINCT CASE WHEN c.price_classification = 'OK' THEN c.id END) DESC
+            LEFT JOIN LATERAL (
+                SELECT
+                    COUNT(*) as total_matches,
+                    COUNT(*) FILTER (WHERE mp->>'price_classification' = 'OK') as ok_matches,
+                    COUNT(*) FILTER (WHERE mp->>'price_classification' = 'HIGH') as high_matches,
+                    COUNT(DISTINCT p.part_id) as total_products
+                FROM catalog_matches cm
+                CROSS JOIN jsonb_array_elements(cm.matched_products) mp
+                JOIN products p ON p.part_id = (mp->>'part_id')
+                WHERE p.seller_email = s.email
+            ) stats ON true
+            WHERE stats.total_matches > 0
+            ORDER BY stats.ok_matches DESC NULLS LAST
         """)
         result = conn.execute(query)
         rows = result.fetchall()

@@ -186,9 +186,45 @@
             font-size: 13px;
         }
 
-        tr { cursor: pointer; }
-        tr:hover { background: #f8f9fa; }
-        tr.selected { background: #e8f4fd; }
+        tr.product-row { cursor: pointer; }
+        tr.product-row:hover { background: #f8f9fa; }
+        tr.product-row.selected { background: #e8f4fd; }
+
+        tr.matches-row {
+            background: #f8f9fa;
+            display: none;
+        }
+        tr.matches-row.expanded { display: table-row; }
+
+        .matches-container {
+            padding: 12px;
+            background: white;
+            border-radius: 6px;
+            margin: 4px 0;
+        }
+
+        .match-item {
+            padding: 8px;
+            margin: 4px 0;
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 12px;
+        }
+
+        .match-item:hover { background: #fafafa; }
+
+        .expand-icon {
+            transition: transform 0.2s;
+            display: inline-block;
+            font-size: 12px;
+            margin-right: 4px;
+        }
+
+        tr.product-row.expanded .expand-icon { transform: rotate(90deg); }
 
         .product-image {
             width: 40px;
@@ -492,11 +528,10 @@
                         <thead>
                             <tr>
                                 <th class="checkbox-cell"><input type="checkbox" onclick="toggleSelectAll(this)"></th>
-                                <th>Code</th>
-                                <th>Matched Article</th>
-                                <th>Seller €</th>
-                                <th>Catalog €</th>
-                                <th>Status</th>
+                                <th>Seller Product Code</th>
+                                <th>Matches</th>
+                                <th>Price €</th>
+                                <th>Best Match</th>
                                 <th>Link</th>
                             </tr>
                         </thead>
@@ -562,7 +597,9 @@
 
         let allPositions = [];
         let filteredPositions = [];
+        let groupedProducts = {}; // Group positions by part_id
         let selectedPositions = new Set();
+        let expandedRows = new Set();
         let currentFilter = 'all';
         let currentLanguage = 'en';
 
@@ -622,6 +659,22 @@
                 }
                 if (!res.ok) throw new Error('Failed to load');
                 allPositions = await res.json();
+
+                // Group positions by part_id
+                groupedProducts = {};
+                allPositions.forEach(pos => {
+                    if (!groupedProducts[pos.part_id]) {
+                        groupedProducts[pos.part_id] = {
+                            part_id: pos.part_id,
+                            code: pos.code,
+                            price: pos.price,
+                            url: pos.url,
+                            matches: []
+                        };
+                    }
+                    groupedProducts[pos.part_id].matches.push(pos);
+                });
+
                 filteredPositions = allPositions;
                 updateStats();
                 renderTable();
@@ -641,42 +694,80 @@
         }
 
         function renderTable() {
-            if (filteredPositions.length === 0) {
+            // Get filtered product IDs
+            const filteredPartIds = new Set(filteredPositions.map(p => p.part_id));
+            const productsToShow = Object.values(groupedProducts).filter(prod => filteredPartIds.has(prod.part_id));
+
+            if (productsToShow.length === 0) {
                 document.getElementById('positions-table').innerHTML = `
-                    <tr><td colspan="7"><div class="empty-state">No positions found</div></td></tr>
+                    <tr><td colspan="6"><div class="empty-state">No positions found</div></td></tr>
                 `;
                 return;
             }
 
-            document.getElementById('positions-table').innerHTML = filteredPositions.map(p => {
-                // Use catalog_article field from API response
-                const catalogArticle = p.catalog_data.article || '-';
-                const posId = p.id || p.part_id;
+            let html = '';
+            productsToShow.forEach(product => {
+                const isSelected = selectedPositions.has(product.part_id);
+                const isExpanded = expandedRows.has(product.part_id);
 
-                return `
-                <tr class="${selectedPositions.has(posId) ? 'selected' : ''}" onclick="togglePosition('${posId}')">
+                // Find best match (OK first, then lowest price)
+                const okMatches = product.matches.filter(m => m.classification === 'OK');
+                const bestMatch = okMatches.length > 0
+                    ? okMatches.reduce((best, m) => !best || m.catalog_price_eur < best.catalog_price_eur ? m : best, null)
+                    : product.matches.reduce((best, m) => !best || (m.catalog_price_eur && m.catalog_price_eur < best.catalog_price_eur) ? m : best, product.matches[0]);
+
+                // Product row
+                html += `
+                <tr class="product-row ${isSelected ? 'selected' : ''} ${isExpanded ? 'expanded' : ''}" onclick="toggleProductRow('${product.part_id}')">
                     <td class="checkbox-cell">
-                        <input type="checkbox" ${selectedPositions.has(posId) ? 'checked' : ''} onclick="event.stopPropagation(); togglePosition('${posId}')">
+                        <input type="checkbox" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation(); togglePosition('${product.part_id}')">
                     </td>
                     <td>
-                        <span class="code">${p.code || p.part_id}</span>
-                        ${p.oem_code ? `<div class="matched-info">OEM: ${p.oem_code}</div>` : ''}
+                        <span class="expand-icon">▶</span>
+                        <span class="code">${product.code || product.part_id}</span>
                     </td>
+                    <td>${product.matches.length} catalog item(s)</td>
+                    <td class="price">${product.price ? '€' + product.price.toFixed(2) : '-'}</td>
                     <td>
-                        <span class="code">${catalogArticle}</span>
-                        ${p.matched_by && p.matched_value ? `<div class="matched-info">Matched: ${p.matched_value} (${p.matched_by})</div>` : ''}
+                        ${bestMatch ? `<span class="badge badge-${bestMatch.classification?.toLowerCase() || 'na'}">${bestMatch.classification || 'N/A'}</span>` : '-'}
+                        ${bestMatch && bestMatch.catalog_price_eur ? ` €${bestMatch.catalog_price_eur.toFixed(2)}` : ''}
                     </td>
-                    <td class="price ${p.classification === 'OK' ? 'ok' : 'high'}">
-                        ${p.price ? '€' + p.price.toFixed(2) : '-'}
+                    <td>${product.url ? `<a href="${product.url}" target="_blank" class="link" onclick="event.stopPropagation()">View</a>` : '-'}</td>
+                </tr>`;
+
+                // Matches row (expandable)
+                html += `
+                <tr class="matches-row ${isExpanded ? 'expanded' : ''}">
+                    <td colspan="6">
+                        <div class="matches-container">
+                            ${product.matches.map(match => `
+                                <div class="match-item">
+                                    <div>
+                                        <strong>${match.catalog_data.article || 'N/A'}</strong>
+                                        <span class="code">${match.catalog}</span>
+                                        ${match.matched_by ? `<span class="matched-info"> • Matched: ${match.matched_value} (${match.matched_by})</span>` : ''}
+                                    </div>
+                                    <div>
+                                        <span class="badge badge-${match.classification?.toLowerCase() || 'na'}">${match.classification || 'N/A'}</span>
+                                        ${match.catalog_price_eur ? ` €${match.catalog_price_eur.toFixed(2)}` : ''}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
                     </td>
-                    <td>
-                        ${p.catalog_price_eur ? '€' + p.catalog_price_eur.toFixed(2) : '-'}
-                    </td>
-                    <td><span class="badge badge-${p.classification?.toLowerCase() || 'na'}">${p.classification || 'N/A'}</span></td>
-                    <td>${p.url ? `<a href="${p.url}" target="_blank" class="link" onclick="event.stopPropagation()">View</a>` : '-'}</td>
-                </tr>
-                `;
-            }).join('');
+                </tr>`;
+            });
+
+            document.getElementById('positions-table').innerHTML = html;
+        }
+
+        function toggleProductRow(partId) {
+            if (expandedRows.has(partId)) {
+                expandedRows.delete(partId);
+            } else {
+                expandedRows.add(partId);
+            }
+            renderTable();
         }
 
         function togglePosition(id) {
@@ -690,10 +781,13 @@
         }
 
         function toggleSelectAll(checkbox) {
+            const filteredPartIds = new Set(filteredPositions.map(p => p.part_id));
+            const productsToToggle = Object.values(groupedProducts).filter(prod => filteredPartIds.has(prod.part_id));
+
             if (checkbox.checked) {
-                filteredPositions.forEach(p => selectedPositions.add(p.id || p.part_id));
+                productsToToggle.forEach(p => selectedPositions.add(p.part_id));
             } else {
-                filteredPositions.forEach(p => selectedPositions.delete(p.id || p.part_id));
+                productsToToggle.forEach(p => selectedPositions.delete(p.part_id));
             }
             renderTable();
             updateEmailTemplate();
@@ -747,12 +841,12 @@
                 return;
             }
 
-            // Get selected position objects
-            const selected = allPositions.filter(p => selectedPositions.has(p.id || p.part_id));
+            // Get selected products
+            const selectedProducts = Object.values(groupedProducts).filter(p => selectedPositions.has(p.part_id));
 
             // Format parts list
             let partsList = template.partsHeader;
-            selected.forEach(p => {
+            selectedProducts.forEach(p => {
                 let line = '• ';
                 if (p.code) line += `SKU: ${p.code}`;
                 if (p.url) line += ` | ${p.url}`;
@@ -778,9 +872,7 @@
         async function confirmSend() {
             const subject = document.getElementById('email-subject').value;
             const body = document.getElementById('email-body').value;
-            const selectedPartIds = allPositions
-                .filter(p => selectedPositions.has(p.id || p.part_id))
-                .map(p => p.part_id);
+            const selectedPartIds = Array.from(selectedPositions);
 
             // Disable button and show loading
             const confirmBtn = document.querySelector('.modal-btn.confirm');
