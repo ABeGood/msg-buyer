@@ -163,7 +163,7 @@ def _expand_data(df: pd.DataFrame, catalog_segment_name: str, save_intermediate:
         lambda x: x[0].get('price_usd', '') if x and len(x) > 0 else ''
     )
     df_expanded['price_eur'] = df_expanded['purchase'].apply(
-        lambda x: x[0].get('price_eur', '') if x and len(x) > 0 else ''
+        lambda x: x[0].get('price', '') if x and len(x) > 0 else ''
     )
     df_expanded['remains'] = df_expanded['purchase'].apply(
         lambda x: x[0].get('remains', 0) if x and len(x) > 0 else 0

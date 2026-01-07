@@ -24,12 +24,13 @@ class Product:
         item_description: Optional[Dict[str, Any]] = None,
         car_details: Optional[Dict[str, Any]] = None,
         seller_email: Optional[str] = None,
+        seller_phone: Optional[str] = None,
         images: Optional[List[str]] = None,
         seller_comment: Optional[str] = None
     ):
         """
         Инициализация товара
-        
+
         Args:
             part_id: Уникальный идентификатор товара
             code: Код товара (SKU)
@@ -40,6 +41,7 @@ class Product:
             item_description: Описание товара (manufacturer_code, oem_code, other_codes, condition)
             car_details: Детали автомобиля (make, series, model, year, engine_capacity, gearbox_code, mileage, vin_code, ...)
             seller_email: Email продавца (используется как ключ для связи с таблицей Sellers)
+            seller_phone: Телефон продавца
             images: Список URL изображений товара
             seller_comment: Комментарий продавца о конкретном товаре (может отсутствовать)
         """
@@ -52,13 +54,14 @@ class Product:
         self.item_description = item_description or {}
         self.car_details = car_details or {}
         self.seller_email = seller_email
+        self.seller_phone = seller_phone
         self.images = images or []
         self.seller_comment = seller_comment
     
     def to_dict(self) -> Dict[str, Any]:
         """
         Преобразование в словарь для сохранения в БД
-        
+
         Returns:
             Словарь с данными товара
         """
@@ -72,6 +75,7 @@ class Product:
             'item_description': self.item_description,
             'car_details': self.car_details,
             'seller_email': self.seller_email,
+            'seller_phone': self.seller_phone,
             'images': self.images,
             'seller_comment': self.seller_comment
         }

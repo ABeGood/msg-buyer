@@ -905,8 +905,18 @@ async def get_catalog_matches(
                     params[f'catalog{i}'] = cat
 
         if segment:
+            # Map English segment names to Russian values used in database
+            segment_mapping = {
+                'TOP': 'ТОП',
+                'SORTIMENT': 'Ассортимент',
+                'NEW': 'Новый товар',
+                'SORTIMENT_OUT': 'Выводим из ассортимента',
+                'IN_DEVELOPMENT': 'В разработке',
+                'UNDEFINED': 'Неопределен'
+            }
+            segment_value = segment_mapping.get(segment.upper(), segment)
             where_conditions.append("catalog_segments_names ILIKE :segment")
-            params['segment'] = f"%{segment}%"
+            params['segment'] = f"%{segment_value}%"
 
         if price_classification:
             if price_classification == 'OK':

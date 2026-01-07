@@ -31,6 +31,7 @@ class ProductModel(Base):
     item_description = Column(JSONB, nullable=True)  # {manufacturer_code, oem_code, other_codes, condition}
     car_details = Column(JSONB, nullable=True)       # {make, series, model, year, engine_capacity, gearbox_code, mileage, vin_code, ...}
     seller_email = Column(String(255), nullable=True)  # Email продавца (FK к таблице Sellers)
+    seller_phone = Column(String(50), nullable=True)  # Телефон продавца
     images = Column(JSONB, nullable=True)            # [url1, url2, ...] - массив строк
     seller_comment = Column(Text, nullable=True)      # Комментарий продавца о конкретном товаре (может отсутствовать)
     available = Column(Boolean, nullable=True)       # Заглушка для будущей логики доступности товара
@@ -66,6 +67,7 @@ class ProductModel(Base):
             'item_description': self.item_description or {},
             'car_details': self.car_details or {},
             'seller_email': self.seller_email,
+            'seller_phone': self.seller_phone,
             'images': self.images or [],
             'seller_comment': self.seller_comment,
             'available': self.available,

@@ -98,6 +98,7 @@ class ProductRepository:
                 existing_product.item_description = product.item_description
                 existing_product.car_details = product.car_details
                 existing_product.seller_email = product.seller_email
+                existing_product.seller_phone = product.seller_phone
                 existing_product.images = product.images
                 existing_product.seller_comment = product.seller_comment
                 # available остается без изменений (заглушка)
@@ -118,6 +119,7 @@ class ProductRepository:
                     item_description=product.item_description,
                     car_details=product.car_details,
                     seller_email=product.seller_email,
+                    seller_phone=product.seller_phone,
                     images=product.images,
                     seller_comment=product.seller_comment,
                     available=None  # Заглушка

@@ -435,9 +435,10 @@ def compare_catalog_with_products(
             other_codes = item_desc.get('other_codes', [])
             manufacturer_code = item_desc.get('manufacturer_code', '')
 
-            # Normalize other_codes
+            # Normalize other_codes (support comma-separated strings)
             if isinstance(other_codes, str):
-                other_codes = [other_codes] if other_codes else []
+                # Split by comma if it's a comma-separated string
+                other_codes = [c.strip() for c in other_codes.split(',') if c.strip()]
             elif not isinstance(other_codes, list):
                 other_codes = []
 
@@ -450,9 +451,19 @@ def compare_catalog_with_products(
             )
 
             if match_info['matched']:
+                # Helper to sanitize float values
+                import math
+                def safe_product_price(price):
+                    if price is None:
+                        return None
+                    if isinstance(price, (int, float)):
+                        if math.isinf(price) or math.isnan(price):
+                            return None
+                    return float(price) if price is not None else None
+
                 # Classify price
                 price_class = _classify_price(
-                    price=product.price,
+                    price=safe_product_price(product.price),
                     catalog_price_eur=catalog_row.get('price_eur'),
                     segments_names=catalog_row.get('segments_names'),
                     price_delta_perc=price_delta_perc
@@ -461,7 +472,7 @@ def compare_catalog_with_products(
                 matched_products.append({
                     'part_id': product.part_id,
                     'code': product.code,
-                    'price': product.price,
+                    'price': safe_product_price(product.price),
                     'url': product.url,
                     'matched_by': match_info['matched_by'],
                     'matched_value': match_info['matched_value'],
@@ -478,11 +489,24 @@ def compare_catalog_with_products(
             ok_count = sum(1 for p in matched_products if p['price_classification'] == 'OK')
             high_count = sum(1 for p in matched_products if p['price_classification'] == 'HIGH')
 
+            # Helper function to convert NaN/Inf to None for JSON compatibility
+            def safe_float(value):
+                """Convert NaN, Inf, or -Inf to None for JSON serialization"""
+                if value is None:
+                    return None
+                if pd.isna(value):
+                    return None
+                if isinstance(value, (int, float)):
+                    import math
+                    if math.isinf(value) or math.isnan(value):
+                        return None
+                return value
+
             catalog_result = {
                 'catalog': table,
                 'catalog_oes_numbers': oes_numbers,
-                'catalog_price_eur': catalog_row.get('price_eur'),
-                'catalog_price_usd': catalog_row.get('price_usd'),
+                'catalog_price_eur': safe_float(catalog_row.get('price_eur')),
+                'catalog_price_usd': safe_float(catalog_row.get('price_usd')),
                 'catalog_segments_names': catalog_row.get('segments_names'),
 
                 # Match statistics
@@ -492,12 +516,12 @@ def compare_catalog_with_products(
                 # Price statistics
                 'price_match_ok_count': ok_count,
                 'price_match_high_count': high_count,
-                'avg_db_price': sum(prices) / len(prices) if prices else None,
-                'min_db_price': min(prices) if prices else None,
-                'max_db_price': max(prices) if prices else None,
+                'avg_db_price': safe_float(sum(prices) / len(prices) if prices else None),
+                'min_db_price': safe_float(min(prices) if prices else None),
+                'max_db_price': safe_float(max(prices) if prices else None),
 
-                # Full data
-                'catalog_data': catalog_row.to_dict(),
+                # Full data (replace NaN with None for JSON compatibility)
+                'catalog_data': {k: safe_float(v) for k, v in catalog_row.to_dict().items()},
                 'matched_products': matched_products
             }
 
